@@ -1,0 +1,302 @@
+---
+title: "MCP servers"
+description: "The five Model Context Protocol servers OMX registers with Codex CLI and what tools each one exposes."
+---
+
+OMX installs five MCP servers that Codex agents can call during sessions via the Model Context Protocol. Each server exposes a focused set of tools. Running `omx setup` registers all of them with the Codex CLI configuration automatically — no manual configuration is required for basic use.
+
+## Installation
+
+<Steps>
+  <Step title="Run omx setup">
+    ```bash
+    omx setup
+    ```
+    This registers all five MCP servers in the Codex CLI config and writes the necessary AGENTS.md scaffolding.
+  </Step>
+  <Step title="Verify">
+    ```bash
+    omx doctor
+    ```
+    Doctor checks that each server is registered and reachable.
+  </Step>
+</Steps>
+
+Once registered, Codex agents call the MCP tools automatically during sessions. You do not need to invoke the servers directly.
+
+## Disabling servers
+
+Each server can be disabled individually with an environment variable.
+
+| Server | Disable variable |
+|---|---|
+| State | `OMX_STATE_SERVER_DISABLE_AUTO_START=1` |
+| Memory | `OMX_MEMORY_SERVER_DISABLE_AUTO_START=1` |
+| Code Intel | `OMX_CODE_INTEL_SERVER_DISABLE_AUTO_START=1` |
+| Trace | `OMX_TRACE_SERVER_DISABLE_AUTO_START=1` |
+| Team | `OMX_TEAM_SERVER_DISABLE_AUTO_START=1` |
+
+To disable all servers at once: `OMX_MCP_SERVER_DISABLE_AUTO_START=1`.
+
+---
+
+## State server
+
+**Server name:** `omx-state`  
+**Storage:** `.omx/state/{mode}-state.json`
+
+Reads and writes mode state JSON files. Workflow skills like `$ralph`, `$team`, and `$ralplan` use this server to persist their active phase, iteration count, and completion status across turns.
+
+### Tools
+
+<AccordionGroup>
+  <Accordion title="state_read">
+    Read the current state for a specific workflow mode.
+
+    **Required:** `mode` — one of `autopilot`, `team`, `ralph`, `ultrawork`, `ultraqa`, `ralplan`, `deep-interview`
+
+    **Optional:** `workingDirectory`, `session_id`
+
+    Returns the JSON state object, or `{ exists: false }` if no state file exists yet.
+  </Accordion>
+  <Accordion title="state_write">
+    Write or update state for a mode. Merges with existing state. Creates `.omx/state/` directories if needed. Writes are atomic (temp file + rename).
+
+    **Required:** `mode`
+
+    **Optional fields:** `active`, `iteration`, `max_iterations`, `current_phase`, `task_description`, `started_at`, `completed_at`, `error`, `state` (custom fields object), `workingDirectory`, `session_id`
+
+    For `ralph` mode, `current_phase` is validated against the canonical Ralph phase list before writing.
+  </Accordion>
+  <Accordion title="state_clear">
+    Delete the state file for a mode.
+
+    **Required:** `mode`
+
+    **Optional:** `all_sessions` (boolean) — clears state files across all session scopes for that mode, not just the current scope.
+  </Accordion>
+  <Accordion title="state_list_active">
+    List all modes that currently have `active: true` in their state files.
+
+    Returns `{ active_modes: string[] }`.
+  </Accordion>
+  <Accordion title="state_get_status">
+    Get detailed status (phase, active flag, file path, full state data) for one or all modes.
+
+    **Optional:** `mode` — if omitted, returns status for all modes with state files.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Memory server
+
+**Server name:** `omx-memory`  
+**Storage:** `.omx/project-memory.json`, `.omx/notepad.md`
+
+Provides cross-session project memory. Agents use this to store facts about the codebase (tech stack, build commands, conventions) that persist between separate Codex sessions on the same project.
+
+The server manages two separate stores: **project memory** (structured JSON, long-lived) and the **notepad** (markdown, three sections with different pruning rules).
+
+### Tools
+
+<AccordionGroup>
+  <Accordion title="project_memory_read">
+    Read all project memory or a specific section.
+
+    **Optional:** `section` — `all`, `techStack`, `build`, `conventions`, `structure`, `notes`, `directives`
+  </Accordion>
+  <Accordion title="project_memory_write">
+    Write or merge project memory.
+
+    **Required:** `memory` (object)
+
+    **Optional:** `merge` (boolean) — if `true`, merges with existing data instead of replacing.
+  </Accordion>
+  <Accordion title="project_memory_add_note">
+    Append a categorized note to the `notes` array in project memory.
+
+    **Required:** `category` (e.g., `build`, `test`, `deploy`, `env`, `architecture`), `content`
+  </Accordion>
+  <Accordion title="project_memory_add_directive">
+    Append a persistent directive to the `directives` array.
+
+    **Required:** `directive`
+
+    **Optional:** `priority` (`high` or `normal`), `context`
+  </Accordion>
+  <Accordion title="notepad_read">
+    Read the notepad. Can return the full file or a specific section.
+
+    **Optional:** `section` — `all`, `priority`, `working`, `manual`
+  </Accordion>
+  <Accordion title="notepad_write_priority">
+    Replace the Priority Context section. Content is capped at 500 characters.
+
+    **Required:** `content`
+  </Accordion>
+  <Accordion title="notepad_write_working">
+    Append a timestamped entry to the Working Memory section.
+
+    **Required:** `content`
+  </Accordion>
+  <Accordion title="notepad_write_manual">
+    Append an entry to the Manual section. Manual entries are never auto-pruned.
+
+    **Required:** `content`
+  </Accordion>
+  <Accordion title="notepad_prune">
+    Remove Working Memory entries older than N days (default: 7). Manual entries are never pruned.
+
+    **Optional:** `daysOld` (integer ≥ 0)
+  </Accordion>
+  <Accordion title="notepad_stats">
+    Return statistics about the notepad: file size, entry counts per section, oldest and newest working-memory timestamps.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Team server
+
+**Server name:** `omx-team-server`  
+**Storage:** `~/.omx/team-jobs/`
+
+Spawns and manages tmux-based worker teams. Agents use this server to start a set of parallel workers, monitor their progress, and clean up panes when the job is done.
+
+Workers can be `codex`, `claude`, or `gemini` agent types. Job state is persisted to `~/.omx/team-jobs/` so it survives MCP restarts.
+
+<Info>
+The team server requires tmux (macOS/Linux) or psmux (Windows). See the [platform notes in the README](https://github.com/Yeachan-Heo/oh-my-codex#platform-notes-for-team-mode) for installation commands.
+</Info>
+
+### Tools
+
+<AccordionGroup>
+  <Accordion title="omx_run_team_start">
+    Spawn a background worker team. Returns a `jobId` immediately; the team runs asynchronously.
+
+    **Required:** `teamName` (slug), `agentTypes` (array of `"codex"`, `"claude"`, or `"gemini"`), `tasks` (array of `{ subject, description }`), `cwd` (absolute path)
+
+    Returns `{ jobId, pid, message }`.
+  </Accordion>
+  <Accordion title="omx_run_team_status">
+    Non-blocking status check. Returns the current job status (`running`, `completed`, `failed`, `timeout`) and result if available.
+
+    **Required:** `job_id`
+  </Accordion>
+  <Accordion title="omx_run_team_wait">
+    Block (with internal polling and exponential backoff from 500 ms to 2000 ms) until the job reaches a terminal state, or until an event arrives in `wake_on=event` mode.
+
+    If this call times out, workers are left running. Call it again to keep waiting, or call `omx_run_team_cleanup` to stop them.
+
+    **Required:** `job_id`
+
+    **Optional:** `timeout_ms` (max 3,600,000), `nudge_delay_ms`, `nudge_max_count`, `nudge_message`, `wake_on` (`terminal` or `event`), `after_event_id`
+  </Accordion>
+  <Accordion title="omx_run_team_cleanup">
+    Kill all worker panes recorded for a job. Does not touch the leader pane or the user's own session.
+
+    **Required:** `job_id`
+
+    **Optional:** `grace_ms` (default: 10,000)
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Trace server
+
+**Server name:** `omx-trace`  
+**Storage:** `.omx/logs/turns-*.jsonl`, `.omx/state/`, `.omx/metrics.json`
+
+Provides session observability. Agents (and operators) can use this server to inspect a chronological timeline of agent turns and mode transitions, or get aggregate statistics about token usage and session duration.
+
+Log files are JSONL files produced by the OMX notify hook during sessions.
+
+### Tools
+
+<AccordionGroup>
+  <Accordion title="trace_timeline">
+    Show a chronological timeline of agent turns and mode transitions.
+
+    **Optional:** `last` (integer) — show only the last N entries; `filter` — `all` (default), `turns` (agent turns only), or `modes` (mode transitions only); `workingDirectory`
+
+    Returns `{ entryCount, totalAvailable, filter, timeline[] }`.
+  </Accordion>
+  <Accordion title="trace_summary">
+    Show aggregate statistics: total turns by type, mode start/end counts, token consumption from `.omx/metrics.json`, and session duration.
+
+    **Optional:** `workingDirectory`
+
+    Returns `{ turns, modes, metrics }`.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Code Intel server
+
+**Server name:** `omx-code-intel`
+
+Provides LSP-like codebase analysis and symbol lookup using pragmatic CLI wrappers (`tsc --noEmit`, `ast-grep`/`sg`) and regex-based extraction — no full language server required.
+
+Supports TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, Swift, C/C++, C#, Ruby, Vue, and Svelte for symbol extraction. TypeScript diagnostics require `tsc` (via `npx`). AST pattern search requires `ast-grep` or `@ast-grep/cli`.
+
+### Tools
+
+<AccordionGroup>
+  <Accordion title="lsp_diagnostics">
+    Get type errors and warnings for a single file. Uses `tsc --noEmit` and filters results to the target file.
+
+    **Required:** `file` (path to source file)
+
+    **Optional:** `severity` — `error`, `warning`, `info`, `hint`
+  </Accordion>
+  <Accordion title="lsp_diagnostics_directory">
+    Run project-level diagnostics on a directory. Returns all errors grouped by file.
+
+    **Required:** `directory`
+
+    **Optional:** `strategy` — `tsc` or `auto`
+  </Accordion>
+  <Accordion title="lsp_document_symbols">
+    Get a list of all symbols (functions, classes, interfaces, types, variables, methods) in a file.
+
+    **Required:** `file`
+  </Accordion>
+  <Accordion title="lsp_workspace_symbols">
+    Search for symbols by name across the entire workspace.
+
+    **Required:** `query`, `file` (any file in the workspace — used to locate the project root)
+  </Accordion>
+  <Accordion title="lsp_hover">
+    Get type information and documentation at a specific position in a file. Regex-based approximation; not a full LSP hover.
+
+    **Required:** `file`, `line` (1-indexed), `character` (0-indexed)
+  </Accordion>
+  <Accordion title="lsp_find_references">
+    Find all references to a symbol across the codebase using grep.
+
+    **Required:** `file`, `line` (1-indexed), `character` (0-indexed)
+
+    **Optional:** `includeDeclaration` (default: `true`)
+  </Accordion>
+  <Accordion title="lsp_servers">
+    List available diagnostic backends (`typescript`, `ast-grep`, `grep`) and their installation status.
+  </Accordion>
+  <Accordion title="ast_grep_search">
+    Search for code patterns using structural AST matching. Meta-variables: `$NAME` (single node), `$$$ARGS` (multiple nodes). Example: `"function $NAME($$$ARGS)"` finds all function declarations.
+
+    **Required:** `pattern`, `language`
+
+    **Optional:** `path`, `maxResults`, `context`
+  </Accordion>
+  <Accordion title="ast_grep_replace">
+    Replace code patterns using AST matching. Defaults to `dryRun=true` (preview only). Set `dryRun=false` to apply changes.
+
+    **Required:** `pattern`, `replacement`, `language`
+
+    **Optional:** `path`, `dryRun`
+  </Accordion>
+</AccordionGroup>

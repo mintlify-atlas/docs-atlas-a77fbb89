@@ -1,0 +1,195 @@
+---
+title: "Installation"
+description: "System requirements, install commands, platform-specific notes, and setup options for oh-my-codex."
+---
+
+## System requirements
+
+| Requirement | Details |
+| --- | --- |
+| **Node.js** | 20 or later |
+| **Codex CLI** | Installed and authenticated (`npm install -g @openai/codex`) |
+| **tmux** | Required for team mode on macOS and Linux |
+| **psmux** | Required for team mode on native Windows |
+
+<Note>
+  `tmux` and `psmux` are only needed if you plan to use `$team` or `omx team`. For standard single-session use, only Node.js and the Codex CLI are required.
+</Note>
+
+## Install
+
+<CodeGroup>
+  ```bash npm (global)
+  npm install -g @openai/codex oh-my-codex
+  ```
+
+  ```bash npm (global, separate steps)
+  npm install -g @openai/codex
+  npm install -g oh-my-codex
+  ```
+</CodeGroup>
+
+Verify the installation:
+
+```bash
+omx --version
+```
+
+## Platform-specific notes
+
+### macOS
+
+Install tmux via Homebrew for team mode support:
+
+```bash
+brew install tmux
+```
+
+On Intel Macs, you may see elevated `syspolicyd` / `trustd` CPU usage during startup while macOS Gatekeeper validates process launches. Run the following to clear the quarantine attribute:
+
+```bash
+xattr -dr com.apple.quarantine $(which omx)
+```
+
+### Linux
+
+Install tmux using your distribution's package manager:
+
+<CodeGroup>
+  ```bash Ubuntu / Debian
+  sudo apt install tmux
+  ```
+
+  ```bash Fedora
+  sudo dnf install tmux
+  ```
+
+  ```bash Arch
+  sudo pacman -S tmux
+  ```
+</CodeGroup>
+
+### Windows
+
+**Native Windows:** Install [psmux](https://github.com/marlocarlo/psmux) as a tmux-compatible backend:
+
+```bash
+winget install psmux
+```
+
+**Windows Subsystem for Linux (WSL2):** Install tmux inside the WSL2 environment:
+
+```bash
+sudo apt install tmux
+```
+
+Without a tmux backend, `omx` still runs Codex directly — HUD auto-attach and `omx team` are unavailable, but all other commands work normally.
+
+## Set up OMX
+
+After installing, run `omx setup` in your project directory to install skills, agent prompts, MCP server config, and `AGENTS.md`:
+
+```bash
+omx setup
+```
+
+### Scope options
+
+Setup asks you to choose a scope. You can also pass it as a flag:
+
+<CodeGroup>
+  ```bash User scope (default)
+  omx setup --scope user
+  ```
+
+  ```bash Project scope
+  omx setup --scope project
+  ```
+</CodeGroup>
+
+| Scope | Files installed to | Best for |
+| --- | --- | --- |
+| `user` | `~/.codex/` | Shared across all your projects |
+| `project` | `./.codex/` in the current directory | Project-specific config, checked into source control |
+
+<Tip>
+  Run `omx setup` from inside your project directory. The scope preference is persisted to `.omx/setup-scope.json` and re-used on future runs, so you only need to choose once per project.
+</Tip>
+
+When `project` scope is used, OMX automatically adds `.omx/` to your `.gitignore` so local runtime state stays out of source control.
+
+### Force reinstall
+
+To overwrite existing files (useful after upgrading OMX):
+
+```bash
+omx setup --force
+```
+
+## Verify with `omx doctor`
+
+After setup, run the health check:
+
+```bash
+omx doctor
+```
+
+`omx doctor` verifies:
+
+- Codex CLI is installed and executable
+- Node.js version is 20 or later
+- Codex home directory exists (`~/.codex` or `./.codex`)
+- `config.toml` is valid TOML with OMX entries
+- Agent prompts are installed
+- Skills are installed
+- `AGENTS.md` is present
+- `.omx/state/` directory exists
+- MCP servers are configured
+
+If any check fails, re-run `omx setup` and then `omx doctor` again. For team runtime diagnostics specifically:
+
+```bash
+omx doctor --team
+```
+
+## Environment variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OMX_BYPASS_DEFAULT_SYSTEM_PROMPT` | `1` (enabled) | Set to `0` to disable OMX's automatic `model_instructions_file` injection. When disabled, Codex uses its own default system prompt without the OMX `AGENTS.md` overlay. |
+| `OMX_MODEL_INSTRUCTIONS_FILE` | `<cwd>/AGENTS.md` | Override the path to the model instructions file injected into Codex on launch. |
+
+Usage examples:
+
+```bash
+# Disable the OMX system prompt overlay for this run
+OMX_BYPASS_DEFAULT_SYSTEM_PROMPT=0 omx
+
+# Point to a custom instructions file
+OMX_MODEL_INSTRUCTIONS_FILE=/path/to/custom-instructions.md omx
+```
+
+## Uninstall
+
+To remove OMX configuration and installed artifacts:
+
+```bash
+omx uninstall
+```
+
+Options:
+
+| Flag | Effect |
+| --- | --- |
+| `--keep-config` | Skip removal of `config.toml` |
+| `--purge` | Also remove the `.omx/` cache directory |
+| `--dry-run` | Show what would be removed without deleting anything |
+| `--scope user` or `--scope project` | Target a specific scope |
+
+```bash
+# Preview what would be removed
+omx uninstall --dry-run
+
+# Remove everything including .omx/ cache
+omx uninstall --purge
+```

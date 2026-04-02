@@ -1,0 +1,111 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "oh-my-codex (OMX)",
+  "projectDescription": "A multi-agent orchestration layer for OpenAI Codex CLI that adds hooks, agent teams, workflow skills, HUD monitoring, and durable runtime state.",
+  "theme": "luma",
+  "primaryColor": "#6C47FF",
+  "lightColor": "#EDE9FF",
+  "darkColor": "#3B1FA8",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Workflow",
+            "pages": [
+              "workflow/overview",
+              "workflow/deep-interview",
+              "workflow/ralplan",
+              "workflow/ralph",
+              "workflow/team"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/skills",
+              "features/hud",
+              "features/hooks",
+              "features/notifications",
+              "features/worktrees"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/setup",
+              "configuration/agents-md",
+              "configuration/state"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "CLI Commands",
+            "pages": [
+              "reference/cli-overview",
+              "reference/commands/launch",
+              "reference/commands/team",
+              "reference/commands/explore",
+              "reference/commands/sparkshell"
+            ]
+          },
+          {
+            "group": "Integrations & Advanced",
+            "pages": [
+              "reference/openclaw",
+              "reference/mcp-servers",
+              "reference/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Canonical 4-skill workflow: $deep-interview → $ralplan → $team / $ralph",
+    "Parallel multi-agent team mode with tmux/worktree coordination",
+    "Persistent ralph completion loops that keep going until the task is done",
+    "Hook plugin system (.omx/hooks/*.mjs) with native event pipeline",
+    "Live HUD status bar (omx hud --watch) showing active modes and state",
+    "OpenClaw / generic notification gateway for Discord, Slack, Telegram",
+    "MCP servers for state, memory, code-intel, team, and tracing",
+    "Durable project state under .omx/ (plans, logs, memory, mode tracking)",
+    "Sparkshell sidecar for bounded read-only shell inspection",
+    "Worktree support for parallel isolated execution environments"
+  ],
+  "publicApiSurface": [
+    "omx (launch Codex with HUD)",
+    "omx setup [--scope user|project]",
+    "omx doctor [--team]",
+    "omx team <N:role> <task>",
+    "omx ralph",
+    "omx explore --prompt <query>",
+    "omx sparkshell <command>",
+    "omx hud [--watch] [--json] [--preset=NAME]",
+    "omx hooks init|status|validate|test",
+    "omx agents-init [path]",
+    "omx autoresearch",
+    "omx session",
+    "omx status",
+    "omx cancel",
+    "omx reasoning <low|medium|high|xhigh>",
+    "$deep-interview <description>",
+    "$ralplan <description>",
+    "$ralph <description>",
+    "$team <N:role> <description>",
+    "onHookEvent(event, sdk) plugin export"
+  ]
+}

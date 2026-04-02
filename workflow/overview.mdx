@@ -1,0 +1,88 @@
+---
+title: "Workflow overview"
+description: "The canonical four-step OMX flow: clarify, plan, then execute with $team or $ralph."
+---
+
+OMX adds a structured workflow layer on top of Codex CLI. The four core skills — `$deep-interview`, `$ralplan`, `$team`, and `$ralph` — each own a distinct phase of the work. Used in order, they prevent the most common failure modes: acting on vague intent, skipping tradeoff review, and declaring work done without verification.
+
+## The four-step flow
+
+```
+$deep-interview  →  $ralplan  →  $team  OR  $ralph
+    clarify          plan           execute
+```
+
+<Steps>
+  <Step title="Clarify with $deep-interview">
+    Run `$deep-interview` when the request is broad, boundaries are missing, or you want to avoid misaligned implementation. It conducts a Socratic interview and produces a scoped requirements spec under `.omx/specs/`.
+
+    Skip this step only when the task already has concrete file/symbol targets and clear acceptance criteria.
+  </Step>
+  <Step title="Plan with $ralplan">
+    Run `$ralplan` when requirements are clear but the architecture, tradeoffs, and test strategy still need consensus. A Planner → Architect → Critic deliberation loop converges on an approved plan and saves it to `.omx/plans/`.
+
+    Skip this step only when a PRD and test spec already exist under `.omx/plans/`.
+  </Step>
+  <Step title="Execute with $team or $ralph">
+    Choose the execution mode that fits the work:
+
+    - `$team` — coordinated parallel workers via tmux/worktrees; use when the plan has multiple independent lanes or the work is large enough to benefit from concurrency.
+    - `$ralph` — persistent single-owner loop that keeps executing until every acceptance criterion is met and an architect has verified the result; use when one sequential owner is the right fit.
+  </Step>
+</Steps>
+
+## Mental model
+
+| Phase | Question answered | Skill |
+|-------|------------------|-------|
+| Clarify | What exactly are we building, and where does it stop? | `$deep-interview` |
+| Plan | How should we build it, and what tradeoffs are we accepting? | `$ralplan` |
+| Execute (parallel) | Who does what lane, in parallel, with shared state? | `$team` |
+| Execute (persistent) | Who owns completion end-to-end and keeps going until done? | `$ralph` |
+
+## Decision matrix
+
+<CardGroup cols={2}>
+  <Card title="$deep-interview" icon="message-question" href="/workflow/deep-interview">
+    Use when the request is ambiguous, boundaries are unstated, or the user says "don't assume". Produces a clarified spec before any implementation starts.
+  </Card>
+  <Card title="$ralplan" icon="list-checks" href="/workflow/ralplan">
+    Use when requirements are clear but architecture, tradeoffs, and test strategy still need review. Produces a PRD and test spec before execution starts.
+  </Card>
+  <Card title="$ralph" icon="arrow-rotate-right" href="/workflow/ralph">
+    Use when an approved plan needs one persistent owner to drive it to completion with mandatory verification. Keeps looping until the criteria are satisfied.
+  </Card>
+  <Card title="$team" icon="users" href="/workflow/team">
+    Use when an approved plan has multiple independent lanes or the work is large enough to benefit from coordinated parallel workers in dedicated tmux panes.
+  </Card>
+</CardGroup>
+
+## When to skip steps
+
+<AccordionGroup>
+  <Accordion title="Skipping $deep-interview">
+    Safe to skip when the task already names specific files, functions, or issue numbers, and acceptance criteria are explicit. Vague requests like "improve the app" should not skip this step.
+  </Accordion>
+  <Accordion title="Skipping $ralplan">
+    Safe to skip when both `.omx/plans/prd-*.md` and `.omx/plans/test-spec-*.md` already exist for the current task. `$ralph` enforces this gate automatically — it will redirect to `$ralplan` if those artifacts are missing.
+  </Accordion>
+  <Accordion title="Choosing $ralph over $team">
+    Prefer `$ralph` for sequential work where one owner driving to completion is cleaner than coordination overhead. Prefer `$team` when tasks are genuinely parallel and would benefit from dedicated workers per lane.
+  </Accordion>
+</AccordionGroup>
+
+## Quick reference
+
+```text
+# Full canonical flow
+$deep-interview "clarify the authentication change"
+$ralplan "approve the auth plan and review tradeoffs"
+$ralph "carry the approved plan to completion"
+
+# Parallel execution alternative
+$team 3:executor "execute the approved plan in parallel"
+```
+
+<Note>
+OMX does not replace Codex. It adds structured task routing and workflow management around Codex, which remains the execution engine throughout.
+</Note>

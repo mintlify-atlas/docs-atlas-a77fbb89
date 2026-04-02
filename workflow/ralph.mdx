@@ -1,0 +1,143 @@
+---
+title: "$ralph"
+description: "Persistent single-owner completion and verification loop that keeps executing until every acceptance criterion is met."
+---
+
+`$ralph` is the sequential execution mode in the canonical OMX workflow. It wraps Codex execution in a persistence loop that keeps working, retrying on failure, and requiring architect verification before it allows completion. It does not stop until the task is genuinely done or a hard blocker requires user input.
+
+## What it does
+
+Ralph delegates work to specialist agents in parallel, runs verification after every iteration, and loops back on rejection. It enforces:
+
+- A **planning gate** — requires a PRD and test spec before implementation begins
+- **Mandatory verification** — fresh test, build, and lint output before claiming completion
+- **Architect sign-off** — at least STANDARD tier architect review on every run
+- A **deslop pass** — runs `oh-my-codex:ai-slop-cleaner` on changed files after architect approval, then re-verifies
+
+## When to use
+
+- An approved plan from `$ralplan` needs persistent sequential completion with one owner
+- The task requires guaranteed completion rather than a best-effort attempt
+- Work may span multiple iterations and needs automatic retry on failure
+- You want execution to keep moving until criteria are satisfied or a real blocker exists
+
+<Note>
+Use `$team` instead when the approved plan has multiple independent lanes that benefit from parallel workers. Use `$ralph` when sequential ownership and persistent pressure are the right fit.
+</Note>
+
+## How to use
+
+```text
+$ralph "carry the approved plan to completion"
+```
+
+### CLI command
+
+`$ralph` can also be launched directly from the terminal:
+
+```bash
+omx ralph "Fix flaky notify-hook tests"
+omx ralph --prd "Ship release checklist automation"
+omx ralph --model gpt-5 "Refactor state hydration"
+```
+
+<CodeGroup>
+
+```bash Standard invocation
+omx ralph "carry the approved plan to completion"
+```
+
+```bash PRD mode (initializes planning artifacts)
+omx ralph --prd "build a todo app with React and TypeScript"
+```
+
+```bash Skip the final deslop pass
+omx ralph --no-deslop "quick fix for null check"
+```
+
+</CodeGroup>
+
+## Planning gate
+
+Ralph checks for both `.omx/plans/prd-*.md` and `.omx/plans/test-spec-*.md` before doing any implementation work. If either file is missing, it redirects to `$ralplan` with a clear message explaining the redirect.
+
+<Warning>
+Do not attempt to bypass the planning gate on substantial changes. The gate exists because agents without a clear plan waste cycles on scope discovery that should have happened during planning.
+</Warning>
+
+## Persistence loop
+
+<Steps>
+  <Step title="Pre-context intake">
+    Loads or creates a context snapshot at `.omx/context/{slug}-{timestamp}.md`. The snapshot carries the task statement, desired outcome, known facts, constraints, and codebase touchpoints. Ralph stores the snapshot path in mode state so all downstream agents share the same grounding context.
+  </Step>
+  <Step title="Review progress">
+    Checks the TODO list and prior iteration state. Picks up incomplete tasks rather than restarting from scratch.
+  </Step>
+  <Step title="Delegate in parallel">
+    Routes independent tasks to specialist agents simultaneously at appropriate complexity tiers. When Ralph follows a `$ralplan` handoff, it starts from the approved available-agent-types roster.
+  </Step>
+  <Step title="Verify completion">
+    Runs fresh test, build, and lint commands. Reads the actual output. Confirms zero pending or in-progress TODO items. Does not claim completion based on "looks good" reasoning.
+  </Step>
+  <Step title="Architect verification">
+    Delegates a verification cross-check to an architect agent at STANDARD tier minimum. For changes touching more than twenty files or involving security/architectural decisions, THOROUGH tier is required.
+  </Step>
+  <Step title="Deslop pass">
+    After architect approval, runs `oh-my-codex:ai-slop-cleaner` in standard mode on the files changed during the Ralph session. The scope is strictly limited to those files.
+  </Step>
+  <Step title="Regression re-verification">
+    Re-runs all tests, build, and lint after the deslop pass. If regression fails, rolls back cleaner changes or fixes and retries until green.
+  </Step>
+  <Step title="Clean exit">
+    Runs `/cancel` to clean up all state files and exit the persistence loop.
+  </Step>
+</Steps>
+
+## Verification behavior
+
+Ralph does not accept partial evidence. Before completion it confirms:
+
+- All requirements from the original task are met
+- Zero pending or in-progress TODO items
+- Fresh test run output shows all tests passing
+- Fresh build output shows success
+- LSP diagnostics show zero errors on affected files
+- Architect verification passed at STANDARD tier minimum
+- Post-deslop regression tests pass
+
+If architect rejects the verification, Ralph fixes the raised issues and re-verifies at the same tier. It does not reduce scope or delete tests to make them pass.
+
+## State files
+
+Ralph persists mode state to `.omx/state/` throughout the session:
+
+| File | Purpose |
+|------|---------|
+| `.omx/ralph/session-instructions.md` | Append instructions loaded by Codex at launch |
+| `.omx/ralph/changed-files.txt` | Tracks files modified during the session for the deslop pass |
+| `.omx/state/subagent-tracking.json` | Ledger of active native subagent threads |
+| `.omx/plans/prd-{slug}.md` | PRD artifact (required before implementation) |
+| `.omx/state/{scope}/ralph-progress.json` | Progress ledger for visual and iterative tasks |
+
+## Flags
+
+| Flag | Effect |
+|------|--------|
+| `--prd` | Initializes a PRD before the Ralph loop starts. Runs `$deep-interview --quick` then creates `.omx/plans/prd-{slug}.md` |
+| `--no-deslop` | Skips the mandatory `ai-slop-cleaner` pass and uses the latest successful pre-deslop verification evidence |
+| `--model <model>` | Passes a model flag through to the underlying Codex launch |
+
+<Tip>
+Ralph reads approved planning artifacts from `.omx/plans/` automatically when launched after a `$ralplan` run. You do not need to pass artifact paths explicitly.
+</Tip>
+
+## Escalation conditions
+
+Ralph stops and reports to the user when:
+
+- A fundamental blocker requires user input (missing credentials, external service down, unclear requirements that cannot be resolved from the codebase)
+- The user says "stop", "cancel", or "abort"
+- The same issue recurs across three or more iterations without progress
+
+In all other cases, Ralph continues.

@@ -1,0 +1,132 @@
+---
+title: "$ralplan"
+description: "Consensus planning with RALPLAN-DR structured deliberation that produces an approved PRD and test spec before execution."
+---
+
+`$ralplan` is the second step in the canonical OMX workflow. It runs a Planner → Architect → Critic deliberation loop until all three agents reach consensus on the implementation approach, then writes a PRD and test spec to `.omx/plans/`. Execution modes (`$ralph`, `$team`) require these artifacts before they begin.
+
+## What it does
+
+`$ralplan` is an alias for `$plan --consensus`. It invokes three agents in sequence:
+
+1. **Planner** creates an initial plan and a compact **RALPLAN-DR summary** — Principles, Decision Drivers, and Viable Options with bounded pros/cons.
+2. **Architect** reviews the plan for architectural soundness, provides the strongest steelman antithesis, and surfaces at least one real tradeoff tension.
+3. **Critic** evaluates the plan against quality criteria: principle-option consistency, fair alternatives, risk mitigation clarity, testable acceptance criteria, and concrete verification steps.
+
+If the Critic returns `ITERATE` or `REJECT`, the loop runs again (up to five iterations) until consensus is reached.
+
+On completion, the approved plan is written to `.omx/plans/prd-*.md` and `.omx/plans/test-spec-*.md`.
+
+## When to invoke
+
+- Requirements are clear enough to stop interviewing but architecture, tradeoffs, and test strategy still need review
+- You have a `$deep-interview` spec and are ready to move to planning
+- `$ralph` has redirected you here because planning artifacts are missing
+
+<Note>
+`$ralph` enforces a planning gate: it checks for `.omx/plans/prd-*.md` and `.omx/plans/test-spec-*.md` before starting implementation. If those files are absent, it redirects to `$ralplan` automatically.
+</Note>
+
+## How to use
+
+```text
+$ralplan "approve the auth plan and review tradeoffs"
+```
+
+### With flags
+
+<CodeGroup>
+
+```text Interactive mode
+$ralplan --interactive "approve the auth plan"
+```
+
+```text High-risk deliberate mode
+$ralplan --deliberate "migrate the production database"
+```
+
+```text Both
+$ralplan --interactive --deliberate "redesign the auth system"
+```
+
+</CodeGroup>
+
+## Flags
+
+| Flag | Effect |
+|------|--------|
+| `--interactive` | Prompts you for feedback at the draft review stage and again at final approval before execution handoff |
+| `--deliberate` | Forces high-risk deliberate mode: adds a pre-mortem with three failure scenarios and an expanded test plan covering unit, integration, e2e, and observability |
+
+<Info>
+`--deliberate` mode also activates automatically when the request contains high-risk signals: auth/security changes, migrations, destructive operations, production incidents, compliance/PII handling, or public API breakage.
+</Info>
+
+## Output artifacts
+
+After a successful run, two files exist under `.omx/plans/`:
+
+| Artifact | Path | Contents |
+|----------|------|----------|
+| PRD | `.omx/plans/prd-{slug}.md` | Explicit scope, user stories, acceptance criteria, ADR |
+| Test spec | `.omx/plans/test-spec-{slug}.md` | Test shape, coverage expectations, verification steps |
+
+The PRD also includes an **available-agent-types roster**, concrete staffing guidance for both `$ralph` and `$team`, suggested reasoning levels by lane, and an explicit launch hint.
+
+## Deliberation loop
+
+<Steps>
+  <Step title="Planner drafts the plan">
+    Creates the initial implementation plan with a RALPLAN-DR summary: Principles (3–5), Decision Drivers (top 3), and at least two Viable Options with bounded pros and cons.
+  </Step>
+  <Step title="Architect reviews">
+    Reviews for architectural soundness. Must provide the strongest steelman antithesis and at least one real tradeoff tension. In deliberate mode, the Architect explicitly flags principle violations.
+
+    <Warning>Architect and Critic always run sequentially. The Architect result must arrive before the Critic is invoked.</Warning>
+  </Step>
+  <Step title="Critic evaluates">
+    Checks principle-option consistency, fair alternatives, risk mitigation clarity, testable acceptance criteria, and concrete verification steps. In deliberate mode, the Critic rejects plans with a missing or weak pre-mortem or expanded test plan.
+  </Step>
+  <Step title="Re-review loop (up to 5 iterations)">
+    Any non-`APPROVE` verdict triggers another full loop: Planner revises → Architect reviews → Critic evaluates. If five iterations complete without approval, the best version is presented for user decision.
+  </Step>
+  <Step title="Final plan output">
+    The approved plan is written to `.omx/plans/` and the skill presents handoff options for `$ralph` or `$team`.
+  </Step>
+</Steps>
+
+## Handoff to $team or $ralph
+
+After approval, choose the execution mode:
+
+<CodeGroup>
+
+```text Persistent single-owner loop
+$ralph "carry the approved plan to completion"
+```
+
+```text Parallel coordinated workers
+$team 3:executor "execute the approved plan in parallel"
+```
+
+</CodeGroup>
+
+Both modes read the approved plan artifacts from `.omx/plans/` and use the available-agent-types roster from the PRD to guide staffing.
+
+<Tip>
+Use `$ralph` when sequential ownership is cleaner. Use `$team` when the plan has genuinely independent lanes that benefit from parallel execution.
+</Tip>
+
+## Pre-execution gate
+
+`$ralplan` catches vague execution requests and redirects them through the planning workflow. The gate fires when an execution keyword (`ralph`, `team`, `autopilot`) appears in a prompt with no concrete anchors — no file paths, function names, issue numbers, or structured deliverables.
+
+The gate auto-passes on any concrete signal:
+
+- File path reference (`src/hooks/bridge.ts`)
+- Issue or PR number (`#42`)
+- Named function or class (`processKeywordDetector`, `UserModel`)
+- Numbered steps or explicit acceptance criteria
+- Error message reference
+
+To bypass the gate explicitly, prefix the prompt with `force:` or `!`.

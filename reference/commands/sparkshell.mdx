@@ -1,0 +1,129 @@
+---
+title: "omx sparkshell"
+description: "Native sidecar for direct shell command execution or explicit tmux-pane summarization — used for noisy read-only commands and bounded verification."
+---
+
+`omx sparkshell` is a native sidecar binary (`omx-sparkshell`) that runs shell commands and optionally summarizes their output. It operates in two modes: **direct command execution** and **tmux-pane capture**. It is also used as the adaptive backend for qualifying read-only prompts in `omx explore`.
+
+## Usage
+
+```bash
+# Direct command execution
+omx sparkshell <command> [args...]
+
+# Explicit tmux-pane summarization
+omx sparkshell --tmux-pane <pane-id> [--tail-lines <100-1000>]
+```
+
+<Note>
+  Shell metacharacters such as pipes (`|`), redirects (`>`), and subshells (`$()`) are **not** interpreted in the current version. Each invocation is a single command with plain arguments.
+</Note>
+
+## Modes
+
+### Direct command execution
+
+Pass a command and its arguments directly. The native sidecar runs the command, captures its output, and — when the output is noisy — applies a summary pass before returning results.
+
+```bash
+omx sparkshell git status
+omx sparkshell git log --oneline -20
+omx sparkshell git diff --stat HEAD~3
+omx sparkshell rg "WorkerStatus" src/
+omx sparkshell ls -la src/team/
+```
+
+This is faster than asking Codex to run these commands itself, because the sidecar handles the output summarization natively without model round-trips for the shell execution step.
+
+### tmux-pane summarization
+
+Pass `--tmux-pane` with a tmux pane ID to capture the tail of that pane's output and apply the sidecar's raw-vs-summary logic. This is the primary way to inspect what a running worker pane is doing without switching to it interactively.
+
+```bash
+omx sparkshell --tmux-pane %12
+omx sparkshell --tmux-pane %12 --tail-lines 400
+omx sparkshell --tmux-pane %5 --tail-lines 800
+```
+
+Pane IDs use the tmux format: a percent sign followed by a numeric index (e.g. `%12`, `%5`). You can find the pane ID for a worker using `omx team status <team-name>`, which prints `sparkshell_commands` with the exact invocation for each pane.
+
+## Flags
+
+<ParamField path="--tmux-pane" type="string">
+  tmux pane ID to capture and summarize (e.g. `%12`). Activates pane summarization mode. Cannot be combined with a direct command.
+</ParamField>
+
+<ParamField path="--tail-lines" type="number">
+  Number of lines to capture from the tmux pane's scrollback buffer. Must be between 100 and 1000. Defaults to 200 in the native sidecar; `omx team status` uses 400 by default when building the recommended sparkshell commands.
+</ParamField>
+
+## Use cases
+
+| Situation | Example |
+|---|---|
+| Noisy read-only shell commands | `omx sparkshell git log --oneline -50` |
+| Bounded verification run output | `omx sparkshell rg "TODO" src/` |
+| Repo-wide listing or search | `omx sparkshell find src -name "*.ts" -type f` |
+| Inspect a live tmux worker pane | `omx sparkshell --tmux-pane %12 --tail-lines 400` |
+| Adaptive backend for omx explore | (called automatically by `omx explore`) |
+
+## Limitations
+
+<Warning>
+  `omx sparkshell` is strictly for **bounded, read-only verification**. Do not use it for:
+
+  - File edits or code generation
+  - Running test suites or build pipelines
+  - Commands that require MCP tools or web access
+  - Complex shell composition with pipes or redirects
+</Warning>
+
+If you need to edit files, run tests, or perform implementation work, use the normal Codex session path instead.
+
+## Fallback behavior
+
+If the native `omx-sparkshell` binary is not available (not yet downloaded, or the platform binary is incompatible), `omx sparkshell` falls back to raw command execution without the summarization layer. A warning is printed to stderr when this occurs:
+
+```
+[sparkshell] native sidecar unavailable; falling back to raw command execution without summary support.
+```
+
+For GLIBC-incompatible Linux environments, a separate warning is emitted and the same raw fallback applies.
+
+To pin a specific binary, set `OMX_SPARKSHELL_BIN` to an absolute path.
+
+## Environment variables
+
+| Variable | Effect |
+|---|---|
+| `OMX_SPARKSHELL_BIN` | Override path to the `omx-sparkshell` native binary |
+
+## Examples
+
+<CodeGroup>
+```bash Inspect a worker pane
+omx sparkshell --tmux-pane %12 --tail-lines 400
+```
+
+```bash Git status with summary
+omx sparkshell git status
+```
+
+```bash Find all TypeScript source files
+omx sparkshell find src -name "*.ts" -type f
+```
+
+```bash Search for a symbol
+omx sparkshell rg "TeamSnapshot" src/
+```
+
+```bash Diff summary
+omx sparkshell git diff --stat HEAD~1
+```
+</CodeGroup>
+
+## Relationship to omx explore
+
+`omx explore` uses `omx sparkshell` as its adaptive backend. When a prompt is classified as a direct shell-native command (e.g. a read-only git subcommand), `omx explore` transparently delegates to `omx sparkshell` rather than calling the explore harness. You do not need to invoke `omx sparkshell` manually for those cases — `omx explore` handles the routing.
+
+Use `omx sparkshell` directly when you want explicit control over what command runs or when you need tmux-pane summarization outside of the explore flow.

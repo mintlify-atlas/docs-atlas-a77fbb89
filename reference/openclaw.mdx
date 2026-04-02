@@ -1,0 +1,291 @@
+---
+title: "OpenClaw & notifications"
+description: "Route OMX session events to Discord, Slack, Telegram, or any custom endpoint using the OpenClaw notification gateway."
+---
+
+OpenClaw is a generic notification gateway that intercepts OMX session lifecycle events and routes them to one or more messaging services or CLI commands. When a session starts, goes idle, asks a question, or ends, OpenClaw can fire a webhook, call an HTTP endpoint, or run a local command — whichever you configure.
+
+## Supported providers
+
+- **Discord** — webhook URL or bot token + channel ID
+- **Slack** — incoming webhook URL
+- **Telegram** — bot token + chat ID
+- **Custom webhook** — any HTTP/HTTPS endpoint (`custom_webhook_command`)
+- **Custom CLI command** — any local binary or script (`custom_cli_command`)
+
+## Activation
+
+OpenClaw is opt-in. Export the required variables in your shell profile before starting OMX.
+
+```bash
+# Required — enables the OpenClaw dispatch pipeline
+export OMX_OPENCLAW=1
+
+# Required in addition for command-type gateways
+export OMX_OPENCLAW_COMMAND=1
+
+# Bearer token for gateway authentication (never hardcode in JSON)
+export HOOKS_TOKEN="your-openclaw-hooks-token"
+
+# Optional — global timeout for command gateways (ms, default: 5000)
+export OMX_OPENCLAW_COMMAND_TIMEOUT_MS=120000
+```
+
+<Warning>
+If `OMX_OPENCLAW=1` is not set, OpenClaw dispatch is silently skipped even if the rest of the configuration is present.
+</Warning>
+
+## Setup paths
+
+There are two ways to configure OpenClaw. Only one should be active at a time. If both are present, `notifications.openclaw` wins and the generic aliases are ignored with a warning.
+
+### Option A — Explicit `notifications.openclaw` schema
+
+This is the native shape. It gives you full control over gateways, per-event hooks, and instruction templates.
+
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "openclaw": {
+      "enabled": true,
+      "gateways": {
+        "local": {
+          "type": "http",
+          "url": "http://127.0.0.1:18789/hooks/agent",
+          "headers": {
+            "Authorization": "Bearer ${HOOKS_TOKEN}"
+          }
+        }
+      },
+      "hooks": {
+        "session-end": {
+          "enabled": true,
+          "gateway": "local",
+          "instruction": "OMX task completed for {{projectPath}}"
+        },
+        "ask-user-question": {
+          "enabled": true,
+          "gateway": "local",
+          "instruction": "OMX needs input: {{question}}"
+        }
+      }
+    }
+  }
+}
+```
+
+### Option B — Generic aliases
+
+Simpler to set up. OMX normalizes these into internal OpenClaw gateway mappings automatically.
+
+<CodeGroup>
+
+```json Webhook alias
+{
+  "notifications": {
+    "enabled": true,
+    "custom_webhook_command": {
+      "enabled": true,
+      "url": "http://127.0.0.1:18789/hooks/agent",
+      "method": "POST",
+      "headers": {
+        "Authorization": "Bearer ${HOOKS_TOKEN}"
+      },
+      "events": ["session-end", "ask-user-question"],
+      "instruction": "OMX event {{event}} for {{projectPath}}"
+    }
+  }
+}
+```
+
+```json CLI command alias
+{
+  "notifications": {
+    "enabled": true,
+    "custom_cli_command": {
+      "enabled": true,
+      "command": "~/.local/bin/my-notifier --event {{event}} --text {{instruction}}",
+      "events": ["session-end"],
+      "instruction": "OMX event {{event}} for {{projectPath}}"
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+### Option C — Clawdbot agent-command gateway
+
+Use this when you want hook events to trigger **agent turns** rather than plain message delivery. The gateway type is `"command"` and the command runs a `clawdbot agent` invocation.
+
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "verbosity": "verbose",
+    "openclaw": {
+      "enabled": true,
+      "gateways": {
+        "local": {
+          "type": "command",
+          "command": "(clawdbot agent --session-id omx-hooks --message {{instruction}} --thinking minimal --deliver --reply-channel discord --reply-to 'channel:YOUR_CHANNEL_ID' --timeout 120 --json >>/tmp/omx-openclaw-agent.jsonl 2>&1 || true)",
+          "timeout": 120000
+        }
+      },
+      "hooks": {
+        "session-start": {
+          "enabled": true,
+          "gateway": "local",
+          "instruction": "Session started: project={{projectName}} session={{sessionId}} tmux={{tmuxSession}}"
+        },
+        "session-end": {
+          "enabled": true,
+          "gateway": "local",
+          "instruction": "Session ended: project={{projectName}} session={{sessionId}} reason={{reason}}"
+        }
+      }
+    }
+  }
+}
+```
+
+<Tip>
+Add `|| true` at the end of command gateway strings to prevent hook failures from blocking the session. Use `>>` with a `.jsonl` extension for structured append logging.
+</Tip>
+
+## Temporary notification mode
+
+For one-off sessions you can activate notifications without editing the config file.
+
+```bash
+omx --notify-temp --discord
+omx --notify-temp --slack
+omx --notify-temp --telegram
+```
+
+The `--notify-temp` flag activates temp mode. Passing `--discord`, `--slack`, or `--telegram` selects which provider to use for that session. Platform credentials are read from the corresponding environment variables (see [environment variables](#environment-variables)).
+
+## Hook events
+
+Each hook event can be independently enabled or disabled per gateway.
+
+| Event | Fires when |
+|---|---|
+| `session-start` | A Codex session begins |
+| `session-end` | A session completes normally |
+| `session-idle` | The agent has been idle for too long |
+| `turn-complete` | An agent turn finishes |
+| `ask-user-question` | The agent is waiting for user input |
+| `stop` | The session is stopped or interrupted |
+
+## Instruction template tokens
+
+Instruction strings support `{{variable}}` interpolation. Include these in your hook instruction templates to add context to notifications.
+
+| Token | Available in | Description |
+|---|---|---|
+| `{{sessionId}}` | All events | Unique session identifier for cross-log traceability |
+| `{{tmuxSession}}` | All events | tmux session name for direct follow-up targeting |
+| `{{projectName}}` | All events | Basename of the project directory |
+| `{{projectPath}}` | All events | Full path of the project directory |
+| `{{event}}` | All events | The event name that triggered this hook |
+| `{{question}}` | `ask-user-question` | The question the agent is asking |
+| `{{reason}}` | `session-end`, `stop` | Why the session ended or was stopped |
+
+<Note>
+Always include `{{sessionId}}` and `{{tmuxSession}}` in your templates. They are essential for correlating notifications with active sessions and targeting the correct tmux pane for follow-up.
+</Note>
+
+## Verbosity levels
+
+The `notifications.verbosity` field (or `OMX_NOTIFY_VERBOSITY` env var) controls which events are allowed through.
+
+| Level | Events included |
+|---|---|
+| `minimal` | `session-start`, `session-stop`, `session-end` |
+| `session` | Above + `session-idle` (recommended default) |
+| `agent` | Above + `ask-user-question` |
+| `verbose` | All events + richer context in messages |
+
+## Timeout configuration
+
+Command gateway timeout precedence (highest wins):
+
+1. `gateways.<name>.timeout` in config
+2. `OMX_OPENCLAW_COMMAND_TIMEOUT_MS` env var
+3. Default: `5000` ms
+
+For `clawdbot agent` workflows, use `120000` (2 minutes) to avoid premature SIGTERM.
+
+## Precedence when both options are configured
+
+```
+notifications.openclaw  →  wins, generic aliases ignored, warning emitted
+custom_webhook_command  →  used only if notifications.openclaw is absent
+custom_cli_command      →  used only if notifications.openclaw is absent
+```
+
+## Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `OMX_OPENCLAW` | Yes | Set to `1` to enable OpenClaw dispatch |
+| `OMX_OPENCLAW_COMMAND` | For command gateways | Set to `1` to enable command-type gateways |
+| `HOOKS_TOKEN` | For HTTP gateways | Bearer token for gateway authentication |
+| `OMX_OPENCLAW_COMMAND_TIMEOUT_MS` | No | Global timeout override for command gateways (ms) |
+| `OMX_NOTIFY_VERBOSITY` | No | Override verbosity level (`minimal`, `session`, `agent`, `verbose`) |
+| `OMX_NOTIFY_TEMP` | No | Set to `1` to activate temp mode without CLI flags |
+
+## Verification
+
+Run these checks before relying on OpenClaw in production.
+
+<Steps>
+  <Step title="Preflight checks">
+    ```bash
+    # Token present
+    test -n "$HOOKS_TOKEN" && echo "token ok" || echo "token missing"
+
+    # Gateway reachable
+    curl -sS -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:18789 || echo "gateway unreachable"
+
+    # Activation gates
+    test "$OMX_OPENCLAW" = "1" && echo "OMX_OPENCLAW=1" || echo "missing OMX_OPENCLAW=1"
+    test "$OMX_OPENCLAW_COMMAND" = "1" && echo "OMX_OPENCLAW_COMMAND=1" || echo "missing OMX_OPENCLAW_COMMAND=1"
+    ```
+  </Step>
+  <Step title="Wake smoke test">
+    ```bash
+    curl -sS -X POST http://127.0.0.1:18789/hooks/wake \
+      -H "Authorization: Bearer ${HOOKS_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{"text":"OMX wake smoke test","mode":"now"}'
+    ```
+    Expected: JSON response containing `"ok":true`.
+  </Step>
+  <Step title="Delivery verification">
+    ```bash
+    curl -sS -o /tmp/omx-openclaw-agent-check.json \
+      -w "HTTP %{http_code}\n" \
+      -X POST http://127.0.0.1:18789/hooks/agent \
+      -H "Authorization: Bearer ${HOOKS_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d '{"message":"OMX delivery check","instruction":"OMX delivery check","event":"session-end","sessionId":"manual-check"}'
+    ```
+    Expected: HTTP 2xx with an accepted response body.
+  </Step>
+</Steps>
+
+## Pass/fail diagnostics
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| HTTP 401/403 | Invalid or missing bearer token | Check `HOOKS_TOKEN` value |
+| HTTP 404 | Wrong path | Verify you are posting to `/hooks/agent` or `/hooks/wake` |
+| HTTP 5xx | Gateway runtime error | Inspect gateway logs |
+| Timeout / connection refused | Host, port, or firewall issue | Verify the gateway is running on the expected address |
+| Command gateway disabled | Missing env vars | Set both `OMX_OPENCLAW=1` and `OMX_OPENCLAW_COMMAND=1` |
+| Command killed by SIGTERM | Timeout too low | Increase `gateways.<name>.timeout` or `OMX_OPENCLAW_COMMAND_TIMEOUT_MS` |
+| Hook failures blocking session | Command exits non-zero | Append `\|\| true` to the command string |
+| Missing logs | Redirect overwrites file | Use `>>` with a `.jsonl` extension |

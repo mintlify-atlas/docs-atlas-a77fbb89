@@ -1,97 +1,70 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "oh-my-codex (OMX)"
+description: "Your Codex is not alone. Add hooks, agent teams, HUDs, workflow skills, and durable runtime state to OpenAI Codex CLI."
 ---
 
-## Setting up
+OMX is a workflow layer for [OpenAI Codex CLI](https://github.com/openai/codex). It keeps Codex as the execution engine and wraps it with structured workflows, parallel agent teams, persistent state, and runtime monitoring — so you go from idea to completion faster and more reliably.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Install OMX and run your first session in under five minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Core workflow" icon="arrow-right-arrow-left" href="/workflow/overview">
+    Learn the canonical deep-interview → ralplan → team/ralph flow.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="CLI reference" icon="terminal" href="/reference/cli-overview">
+    Every command, subcommand, and flag documented with examples.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Hook plugins" icon="plug" href="/features/hooks">
+    Extend OMX with custom .mjs plugins that react to session events.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What OMX adds to Codex
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Workflow skills" icon="wand-magic-sparkles" href="/features/skills">
+    Reusable in-session commands: `$deep-interview`, `$ralplan`, `$ralph`, `$team`.
+  </Card>
+  <Card title="Agent teams" icon="users" href="/workflow/team">
+    Spawn parallel Codex workers in tmux with automatic task routing and state sync.
+  </Card>
+  <Card title="Live HUD" icon="gauge" href="/features/hud">
+    A real-time status bar showing active modes, team workers, and session health.
+  </Card>
+  <Card title="Notifications" icon="bell" href="/features/notifications">
+    Session lifecycle alerts via Discord, Slack, Telegram, or OpenClaw gateway.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## The recommended first session
 
-## Need inspiration?
+<Steps>
+  <Step title="Install">
+    ```bash
+    npm install -g @openai/codex oh-my-codex
+    ```
+  </Step>
+  <Step title="Set up your project">
+    ```bash
+    omx setup
+    omx doctor
+    ```
+  </Step>
+  <Step title="Launch with full power">
+    ```bash
+    omx --madmax --high
+    ```
+  </Step>
+  <Step title="Use the canonical workflow inside Codex">
+    ```text
+    $deep-interview "clarify the authentication change"
+    $ralplan "approve the auth plan and review tradeoffs"
+    $team 3:executor "execute the approved plan in parallel"
+    ```
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Tip>
+  New to OMX? Start with the [Quick Start](/quickstart) guide for a complete walkthrough, or jump straight to the [Core Workflow](/workflow/overview) to understand the recommended execution pattern.
+</Tip>

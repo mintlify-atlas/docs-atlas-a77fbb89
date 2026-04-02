@@ -1,0 +1,205 @@
+---
+title: "Skills"
+description: "Reusable workflow commands invoked with $name syntax — the core building blocks of every OMX session."
+---
+
+Skills are named workflow programs stored as `SKILL.md` files that Codex loads on demand. Invoke any skill with `$skill-name "task description"` and OMX expands it into a full agent workflow. Browse all installed skills inside a Codex session with the `/skills` command.
+
+<Info>
+Skills are installed at `~/.codex/skills/*/SKILL.md` by `omx setup`. Each directory name is the skill name used in `$name` invocations.
+</Info>
+
+## Canonical workflow
+
+The four core skills cover the full development cycle from vague idea to verified completion:
+
+<Steps>
+  <Step title="Clarify with $deep-interview">
+    Run when the request or its boundaries are still unclear. The Socratic interview loop asks one question per round, scores ambiguity mathematically, and produces a spec artifact in `.omx/specs/` before any code is written.
+
+    ```text
+    $deep-interview "clarify the authentication change"
+    ```
+
+    Supports `--quick` (5 rounds, threshold 0.30), `--standard` (12 rounds, threshold 0.20, default), and `--deep` (20 rounds, threshold 0.15) depth profiles.
+  </Step>
+
+  <Step title="Plan with $ralplan">
+    Runs Planner → Architect → Critic consensus planning. Produces canonical artifacts in `.omx/plans/` (PRD and test spec) that ralph and team require before execution.
+
+    ```text
+    $ralplan "approve the auth plan and review tradeoffs"
+    $ralplan --deliberate "auth migration with pre-mortem"
+    $ralplan --interactive "review each step with me"
+    ```
+
+    Add `--deliberate` for high-risk work (adds pre-mortem scenarios and expanded test planning). Add `--interactive` to approve each planning step manually.
+  </Step>
+
+  <Step title="Execute with $ralph or $team">
+    Choose based on how the work should be distributed:
+
+    - **`$ralph`** — persistent single-owner completion loop with architect verification at every iteration. Keeps working until task is fully verified or a hard blocker is hit.
+    - **`$team`** — launches N coordinated Codex/Claude workers in tmux panes sharing `.omx/state/team/` state. Best for large approved plans that benefit from parallel lanes.
+
+    ```text
+    $ralph "carry the approved plan to completion"
+    $team 3:executor "execute the approved plan in parallel"
+    ```
+  </Step>
+</Steps>
+
+## Full skill catalog
+
+### Execution modes
+
+<CardGroup cols={2}>
+  <Card title="$ralph" icon="arrow-rotate-right">
+    Persistence loop until task completion with architect verification. Loops through execute → verify → fix → architect-sign-off until all criteria pass or a real blocker surfaces.
+  </Card>
+  <Card title="$team" icon="users">
+    N coordinated agents on a shared task list using tmux-based orchestration. Workers run in split panes and share state through `.omx/state/team/`.
+  </Card>
+  <Card title="$autopilot" icon="robot">
+    Full autonomous pipeline when you intentionally skip the standard clarify → plan → execute flow. Takes a task brief and drives it end-to-end.
+  </Card>
+  <Card title="$ultrawork" icon="bolt">
+    Maximum parallel execution. Fires all independent tasks simultaneously using Codex native subagents.
+  </Card>
+  <Card title="$ultraqa" icon="flask">
+    Test / verify / fix cycling workflow. Keeps running the test suite and fixing failures until the suite is green.
+  </Card>
+  <Card title="$ecomode" icon="leaf">
+    Token-efficient model routing modifier. Downgrades default tier selections (THOROUGH → STANDARD, STANDARD → LOW) to reduce cost. Combine with other modes: `eco ralph`, `eco ultrawork`.
+  </Card>
+  <Card title="$visual-verdict" icon="image">
+    Structured visual QA loop for screenshot / reference image matching. Default pass threshold is score ≥ 90. Run before every edit on visual tasks.
+  </Card>
+  <Card title="$swarm" icon="network-wired">
+    Team compatibility facade — alias for `$team` for swarm-style invocations.
+  </Card>
+</CardGroup>
+
+### Planning & clarification
+
+<CardGroup cols={2}>
+  <Card title="$deep-interview" icon="comments">
+    Socratic deep interview with mathematical ambiguity gating. Produces `.omx/specs/deep-interview-{slug}.md` before handing off to planning or execution.
+  </Card>
+  <Card title="$ralplan" icon="sitemap">
+    Planner / Architect / Critic consensus planning (alias for `$plan --consensus`). Produces `.omx/plans/prd-*.md` and `.omx/plans/test-spec-*.md`.
+  </Card>
+  <Card title="$plan" icon="list-check">
+    Strategic planning for cases outside the canonical `$deep-interview` → `$ralplan` path.
+  </Card>
+  <Card title="$pipeline" icon="pipe-section">
+    Sequential agent pipeline — stages run one after another with structured handoffs.
+  </Card>
+</CardGroup>
+
+### Specialist agent shortcuts
+
+<CardGroup cols={2}>
+  <Card title="$analyze" icon="magnifying-glass-chart">
+    Deep root-cause analysis and investigation of a codebase or problem.
+  </Card>
+  <Card title="$deepsearch" icon="globe">
+    Multi-source web and codebase research synthesis.
+  </Card>
+  <Card title="$tdd" icon="vial">
+    Test-driven development workflow — write tests first, then implement to make them pass.
+  </Card>
+  <Card title="$build-fix" icon="wrench">
+    Fix build errors and type errors until the build is clean. Triggered automatically by keywords like "fix build" or "type errors".
+  </Card>
+  <Card title="$code-review" icon="code">
+    Structured code review of the current branch or specified files.
+  </Card>
+  <Card title="$security-review" icon="shield">
+    Security-focused audit of the codebase for vulnerabilities, OWASP issues, and misconfigurations.
+  </Card>
+  <Card title="$frontend-ui-ux" icon="paintbrush">
+    Specialist UI/UX review and implementation for frontend work.
+  </Card>
+  <Card title="$web-clone" icon="window-restore">
+    Full website cloning pipeline — extract → generate → visual-verdict loop until the clone matches the reference.
+  </Card>
+</CardGroup>
+
+### Git and code operations
+
+<CardGroup cols={2}>
+  <Card title="$git-master" icon="code-branch">
+    Git expert for atomic commits, rebasing, and history management. Routes to the git-master agent.
+  </Card>
+  <Card title="$review" icon="eye">
+    Reviewer-only pass for plan review and cleanup artifact review. Alias for `$plan --review` — preserves writer/reviewer separation.
+  </Card>
+  <Card title="$ask-claude" icon="robot">
+    Ask the Claude provider CLI directly and write artifact output. Wraps `omx ask claude`.
+  </Card>
+  <Card title="$ask-gemini" icon="robot">
+    Ask the Gemini provider CLI directly and write artifact output. Wraps `omx ask gemini`.
+  </Card>
+</CardGroup>
+
+### Utilities
+
+| Skill | What it does |
+|-------|-------------|
+| `$cancel` | Cancel any active OMX mode (autopilot, ralph, ultrawork, team, …). The standard way to exit a mode after completion. |
+| `$doctor` | Verify the OMX installation when something seems wrong. |
+| `$help` | Show usage guidance from inside a session. |
+| `$note` | Append a note to `.omx/notepad.md` for cross-session memory. |
+| `$trace` | Inspect OMX runtime state and hook traces. |
+| `$hud` | Surface HUD status from inside a session. |
+| `$omx-setup` | Re-run setup to install or repair OMX components. |
+| `$configure-notifications` | Interactive notification provider setup wizard. |
+| `$ralph-init` | Initialize ralph state files without starting the loop. |
+| `$skill` | Look up a skill's documentation. |
+| `$worker` | Internal team-worker protocol and lifecycle (not for direct use outside `$team`). |
+
+## How to invoke a skill
+
+```text
+$skill-name "task description or arguments"
+```
+
+Examples:
+
+```text
+$deep-interview "clarify the auth change"
+$ralplan "approve the auth plan and review tradeoffs"
+$ralph "carry the approved plan to completion"
+$team 3:executor "execute the approved plan in parallel"
+$code-review "review current branch"
+$doctor
+```
+
+<Tip>
+Some skills also activate via keyword detection without the `$` prefix. For example, typing "don't stop" triggers `$ralph`, and "fix build" triggers `$build-fix`. See the AGENTS.md keyword table for the full mapping.
+</Tip>
+
+## Browse skills
+
+Inside any Codex session, type `/skills` to list all installed skills with their names and descriptions.
+
+## Skill install location
+
+Skills are SKILL.md files installed by `omx setup`:
+
+```
+~/.codex/skills/
+├── deep-interview/SKILL.md
+├── ralplan/SKILL.md
+├── ralph/SKILL.md
+├── team/SKILL.md
+├── autopilot/SKILL.md
+├── ultrawork/SKILL.md
+├── cancel/SKILL.md
+├── ecomode/SKILL.md
+├── doctor/SKILL.md
+└── ... (36 skill directories total)
+```
+
+Each directory name is the `$name` used in invocations.

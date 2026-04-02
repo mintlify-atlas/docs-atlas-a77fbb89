@@ -1,0 +1,86 @@
+---
+title: "Introduction"
+description: "oh-my-codex (OMX) is a workflow layer for OpenAI Codex CLI that adds structured skills, durable state, and a consistent end-to-end pipeline on top of Codex's agent engine."
+---
+
+## What is OMX?
+
+oh-my-codex (OMX) is a workflow layer for [OpenAI Codex CLI](https://github.com/openai/codex). It keeps Codex as the execution engine and makes it easier to:
+
+- Start a stronger Codex session by default
+- Run one consistent workflow from clarification to completion
+- Invoke canonical skills with `$deep-interview`, `$ralplan`, `$team`, and `$ralph`
+- Keep project guidance, plans, logs, and state in `.omx/`
+
+## The mental model
+
+OMX does **not** replace Codex. It adds a better working layer around it:
+
+| Layer | What it does |
+| --- | --- |
+| **Codex** | Does the actual agent work — code edits, tool calls, shell execution |
+| **OMX role keywords** | Make useful specialist roles (executor, architect, debugger, etc.) reusable |
+| **OMX skills** | Make common workflows (`$ralph`, `$ralplan`, `$team`, `$deep-interview`) reusable |
+| **`.omx/`** | Stores plans, logs, memory, and runtime state between sessions |
+
+Most users should think of OMX as **better task routing + better workflow + better runtime**, not as a command surface to operate manually all day.
+
+## Key concepts
+
+### Skills
+
+Skills are workflow commands you invoke inside a Codex session. The four canonical skills form the recommended pipeline:
+
+| Skill | Purpose |
+| --- | --- |
+| `$deep-interview "..."` | Clarify intent, boundaries, and non-goals when the request is still vague |
+| `$ralplan "..."` | Turn a clarified scope into an approved architecture and implementation plan |
+| `$ralph "..."` | Persistent completion and verification loops with one owner |
+| `$team "..."` | Coordinated parallel execution across multiple worker panes |
+
+Use `/skills` inside a Codex session to browse all installed skills and supporting helpers.
+
+### The `.omx/` directory
+
+OMX persists runtime state under `.omx/` in your project:
+
+- `.omx/state/` — active mode state
+- `.omx/plans/` — PRDs and test specs produced by `$ralplan`
+- `.omx/logs/` — session logs
+- `.omx/notepad.md` — in-session notes
+- `.omx/project-memory.json` — cross-session memory
+
+### HUD
+
+The HUD (`omx hud --watch`) is a status display that attaches to your tmux session and shows active modes, session metrics, and worker state. It auto-attaches when you launch inside tmux.
+
+### Hooks
+
+OMX supports extensibility hooks that fire on session lifecycle events (start, finish, blocked). These can be wired to notification providers (Discord, Slack, Telegram) or custom OpenClaw gateways.
+
+## When to use OMX vs. plain Codex
+
+**Use OMX if you want:**
+- A standard workflow built around `$deep-interview`, `$ralplan`, `$team`, and `$ralph`
+- Durable state, plans, and logs that persist across sessions
+- Role-based routing and specialist helpers for complex tasks
+- Parallel coordinated execution via `$team`
+
+**Stick with plain Codex if:**
+- You want no extra workflow layer
+- You prefer to manage your own system prompts and AGENTS.md directly
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Get from zero to a working OMX session in minutes.
+  </Card>
+  <Card title="Workflow overview" icon="diagram-project" href="/workflow/overview">
+    Understand the full clarify → plan → execute pipeline.
+  </Card>
+  <Card title="Skills reference" icon="book" href="/features/skills">
+    Browse every skill and when to use it.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/reference/cli-overview">
+    Every `omx` command and flag.
+  </Card>
+</CardGroup>

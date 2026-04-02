@@ -1,0 +1,335 @@
+---
+title: "Setup and configuration"
+description: "Install, verify, and manage your oh-my-codex installation using omx setup, omx doctor, and omx uninstall."
+---
+
+## Overview
+
+`omx setup` installs every component OMX needs to run on top of Codex CLI. It is idempotent — running it again updates changed files and leaves everything else untouched. Run it once after installing OMX, then again whenever you upgrade.
+
+```bash
+npm install -g oh-my-codex
+omx setup
+```
+
+After setup, verify the installation with:
+
+```bash
+omx doctor
+```
+
+---
+
+## What `omx setup` installs
+
+Setup runs eight phases in order:
+
+<Steps>
+  <Step title="Create directories">
+    Creates the scope-specific `.codex/` home directory alongside the runtime
+    subdirectories: `.omx/state/`, `.omx/plans/`, and `.omx/logs/`.
+  </Step>
+
+  <Step title="Install agent prompts">
+    Copies role prompt files (`executor.md`, `architect.md`, `debugger.md`, etc.)
+    to the `prompts/` directory inside the configured Codex home. Legacy prompt
+    shims from older OMX versions are removed automatically.
+  </Step>
+
+  <Step title="Install skills">
+    Copies every workflow skill directory (each containing a `SKILL.md`) to the
+    `skills/` directory. Core skills installed include `ralph`, `ralplan`,
+    `deep-interview`, `team`, `ultrawork`, `autopilot`, and more. Each
+    `SKILL.md` must contain valid YAML frontmatter with `name` and `description`
+    fields or setup will reject it.
+  </Step>
+
+  <Step title="Install native agent configs">
+    Generates `.toml` configuration files for every agent definition (e.g.
+    `executor.toml`, `architect.toml`) and writes them to `.codex/agents/`.
+    Obsolete TOML files from old format versions are removed automatically.
+  </Step>
+
+  <Step title="Update config.toml">
+    Merges OMX-managed settings into `config.toml`. This includes:
+    - MCP server entries (`omx_state`, `omx_memory`, `omx_code_intel`, `omx_trace`)
+    - `[agents]` default entries
+    - Feature flags (`multi_agent`, `child_agents_md`)
+    - The `notify` hook script path
+    - The `[tui]` status line section (only on Codex CLI < 0.107.0; newer versions manage this themselves)
+    - Shared MCP servers from a registry file if present
+
+    If a legacy model (`gpt-5.3-codex`) is detected in the existing config, setup
+    prompts you to upgrade to the current default frontier model.
+  </Step>
+
+  <Step title="Generate AGENTS.md">
+    Writes the top-level `AGENTS.md` orchestration file from the bundled template.
+    - **User scope**: written to `~/.codex/AGENTS.md`
+    - **Project scope**: written to `./AGENTS.md` in the project root
+
+    Setup will not overwrite an existing AGENTS.md while an active OMX session is
+    running. If the file is already OMX-generated, setup refreshes only the model
+    capability table inside it rather than replacing the whole file.
+  </Step>
+
+  <Step title="Configure notification hook">
+    Registers the `notify-hook.js` script path so Codex fires lifecycle
+    notifications on session start, finish, and block events.
+  </Step>
+
+  <Step title="Configure HUD">
+    Writes `.omx/hud-config.json` with `{ "preset": "focused" }` as the default
+    HUD preset. Use `omx hud --watch` to activate the status line display.
+  </Step>
+</Steps>
+
+---
+
+## Setup scopes
+
+OMX supports two installation scopes that control where files are written:
+
+<CardGroup cols={2}>
+  <Card title="user scope" icon="house">
+    Installs to `~/.codex/` globally. Skills, prompts, and AGENTS.md are shared
+    across all projects. This is the default.
+
+    ```
+    ~/.codex/
+    ├── config.toml
+    ├── prompts/
+    ├── skills/
+    ├── agents/
+    └── AGENTS.md
+    ```
+  </Card>
+  <Card title="project scope" icon="folder">
+    Installs to `.codex/` inside the current working directory. Ideal for
+    team repos where everyone should share the same OMX configuration.
+
+    ```
+    .codex/
+    ├── config.toml
+    ├── prompts/
+    ├── skills/
+    ├── agents/
+    └── AGENTS.md  (written to project root)
+    ```
+  </Card>
+</CardGroup>
+
+Pass `--scope` explicitly to override the interactive prompt:
+
+```bash
+# Global install (default)
+omx setup --scope user
+
+# Project-local install
+omx setup --scope project
+```
+
+Once set, the chosen scope is persisted to `.omx/setup-scope.json` so
+subsequent `omx setup` and `omx doctor` runs use the same scope automatically.
+For project scope, `.omx/` is automatically added to `.gitignore` to keep
+runtime state out of source control.
+
+<Info>
+  When using project scope, `omx setup` rewrites template paths from
+  `~/.codex` to `./.codex` so all internal references resolve correctly
+  inside the project tree.
+</Info>
+
+---
+
+## Flags
+
+### `--force`
+
+Re-installs all components unconditionally, overwriting any previously installed
+files. Also triggers cleanup of stale deprecated skills and prompts that are no
+longer part of the current release.
+
+```bash
+omx setup --force
+```
+
+### `--dry-run`
+
+Previews every file action — what would be created, updated, or backed up —
+without writing anything to disk. Existing backups are simulated in the
+output but not created.
+
+```bash
+omx setup --dry-run
+omx setup --dry-run --verbose
+```
+
+### `--verbose`
+
+Prints a line for every file examined: whether it was updated, left unchanged,
+backed up, or skipped.
+
+---
+
+## Config file location
+
+The config file written and managed by `omx setup`:
+
+| Scope | Path |
+|-------|------|
+| `user` (default) | `~/.codex/config.toml` |
+| `project` | `.codex/config.toml` (relative to project root) |
+
+When a Codex CLI version is detected, OMX decides whether to manage the
+`[tui]` section itself. Codex CLI 0.107.0 and later own the `[tui]` section;
+OMX leaves it untouched on those versions.
+
+---
+
+## `omx doctor`
+
+Verifies the installation against a checklist of requirements.
+
+```bash
+omx doctor
+```
+
+Checks performed:
+
+| Check | What it verifies |
+|-------|-----------------|
+| Codex CLI | `codex --version` exits cleanly |
+| Node.js | Version is 20 or higher |
+| Explore Harness | Native binary or `cargo` available for `omx explore` |
+| Codex home | The `.codex/` directory exists at the resolved scope |
+| Config | `config.toml` is valid TOML and contains OMX entries |
+| Explore routing | `USE_OMX_EXPLORE_CMD` is enabled (default) |
+| Prompts | Expected number of agent prompt files are present |
+| Skills | Expected number of skill directories are present |
+| Legacy skill roots | No conflicting `~/.agents/skills` overlap |
+| AGENTS.md | File is present at the expected scope location |
+| State dir | `.omx/state/` exists |
+| MCP Servers | At least one OMX MCP server (`omx_state`, `omx_memory`) is configured |
+
+Output uses `[OK]`, `[!!]` (warning), and `[XX]` (failure) prefixes. A final
+summary line shows pass/warn/fail counts.
+
+```
+  [OK] Codex CLI: installed (0.109.0)
+  [OK] Node.js: v22.3.0
+  [OK] Config: config.toml has OMX entries
+  [OK] Prompts: 14 agent prompts installed
+  [OK] Skills: 18 skills installed
+  [OK] AGENTS.md: found in project root
+  [OK] MCP Servers: 4 servers configured (OMX present)
+
+Results: 10 passed, 0 warnings, 0 failed
+
+All checks passed! oh-my-codex is ready.
+```
+
+Run `omx doctor --team` to check team/swarm runtime health specifically
+(tmux session presence, stale heartbeats, orphaned sessions, leader activity).
+
+If doctor reports failures, run `omx setup` to fix them, or
+`omx setup --force` to refresh all components.
+
+---
+
+## `omx uninstall`
+
+Removes all OMX artifacts from the installation without touching your own code.
+
+```bash
+omx uninstall
+```
+
+Uninstall runs five phases:
+
+1. **Clean `config.toml`** — removes MCP server entries, agent entries, the `[tui]`
+   section, top-level keys (`notify`, `model_reasoning_effort`, `developer_instructions`),
+   feature flags (`multi_agent`, `child_agents_md`), and OMX-managed env defaults.
+2. **Remove agent prompts** — deletes installed `.md` files from the `prompts/` directory.
+3. **Remove native agent configs** — deletes `.toml` files from the `agents/` directory.
+4. **Remove skills** — deletes each installed skill directory.
+5. **Cleanup** — removes OMX-generated `AGENTS.md` (only if it was generated by OMX,
+   identified by the `<!-- omx:generated:agents-md -->` marker). Also removes
+   `setup-scope.json` and `hud-config.json`.
+
+### Uninstall options
+
+| Flag | Effect |
+|------|--------|
+| `--keep-config` | Skips step 1; leaves `config.toml` untouched |
+| `--purge` | Also removes the entire `.omx/` runtime directory (plans, logs, memory, state) |
+| `--scope user\|project` | Explicitly targets the given scope instead of the persisted one |
+| `--dry-run` | Shows what would be removed without writing anything |
+| `--verbose` | Prints each file action |
+
+```bash
+# Preview removal
+omx uninstall --dry-run
+
+# Remove everything including plans and logs
+omx uninstall --purge
+
+# Keep config.toml but remove everything else
+omx uninstall --keep-config
+
+# Target project scope explicitly
+omx uninstall --scope project
+```
+
+---
+
+## `omx reasoning`
+
+Reads or sets the `model_reasoning_effort` key in `config.toml`.
+
+```bash
+# Show current value
+omx reasoning
+
+# Set reasoning effort
+omx reasoning low
+omx reasoning medium
+omx reasoning high
+omx reasoning xhigh
+```
+
+This is equivalent to passing `-c model_reasoning_effort="high"` on every
+`codex` launch, but persisted to config. The `--high` and `--xhigh` launch
+flags on `omx` override this for a single session without changing the stored
+value.
+
+---
+
+## Key environment variables
+
+These environment variables adjust OMX behaviour at launch time:
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `OMX_BYPASS_DEFAULT_SYSTEM_PROMPT` | `1` (enabled) | When not `"0"`, OMX injects `-c model_instructions_file="<path>"` automatically so AGENTS.md is loaded as the model instructions file instead of Codex's default system prompt. Set to `"0"` to disable this override. |
+| `OMX_MODEL_INSTRUCTIONS_FILE` | `<cwd>/AGENTS.md` | Override the path to the model instructions file. Takes precedence over the default CWD-relative path. |
+| `OMX_TEAM_WORKER_LAUNCH_ARGS` | _(none)_ | Space-separated extra arguments appended to every team worker's `codex` invocation. Used to pass `--model`, reasoning flags, or other per-worker overrides. |
+
+<Note>
+  `OMX_BYPASS_DEFAULT_SYSTEM_PROMPT=0` is useful when you want Codex's built-in
+  default system prompt instead of AGENTS.md — for example, when testing Codex
+  behaviour without OMX instructions.
+</Note>
+
+---
+
+## Backups
+
+Before overwriting any existing file, `omx setup` creates a timestamped backup
+under:
+
+- **User scope**: `~/.omx/backups/setup/<timestamp>/`
+- **Project scope**: `.omx/backups/setup/<timestamp>/`
+
+The relative path from the scope root is preserved inside the backup directory,
+so you can always restore a previous version of any managed file.

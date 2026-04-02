@@ -1,0 +1,121 @@
+---
+title: "Git worktrees"
+description: "Launch Codex in an isolated git worktree so parallel work never touches your main branch."
+---
+
+Worktree mode provisions a separate git worktree before launching Codex. The working tree is isolated from your main checkout — parallel tasks run on their own branch without disrupting the branch you have checked out.
+
+## Basic usage
+
+Add `-w` / `--worktree` to any `omx` launch command:
+
+<CodeGroup>
+```bash Detached worktree (no branch)
+omx -w --high
+omx --worktree --high
+```
+
+```bash Named worktree (creates / reuses branch)
+omx -w feat/auth --high
+omx --worktree=feat/auth --high
+omx --worktree feat/auth --high
+```
+</CodeGroup>
+
+### Detached vs. named
+
+| Mode | Flag | Branch | Use case |
+|------|------|--------|----------|
+| **Detached** | `-w` or `--worktree` (no value) | HEAD, no branch | Exploration, one-off experiments |
+| **Named** | `-w branch-name` or `--worktree=branch-name` | Creates `branch-name` if it does not exist, or reuses it | Feature work, parallel fixes |
+
+A detached worktree checks out the current HEAD commit without creating a branch. A named worktree creates (or reuses) the branch you specify and checks it out in the new tree.
+
+## Worktree location
+
+Worktrees are placed outside the main repo to keep the directory clean:
+
+```
+# For omx launch with --worktree=feat/auth
+<repo-parent>/<repo-name>.omx-worktrees/launch-feat-auth/
+
+# For omx team workers with --worktree=sprint-1
+<repo-root>/.omx/team/<team-name>/worktrees/<worker-name>/
+
+# For omx autoresearch with --worktree
+<repo-root>/.omx/worktrees/autoresearch-<name>-<run-tag>/
+```
+
+Branch names are sanitized for path safety — characters outside `[a-z0-9]` are replaced with hyphens.
+
+## Parallel feature development
+
+Worktrees let you run multiple `omx` sessions on the same repository at the same time without switching branches:
+
+```bash
+# Terminal 1 — work on auth
+omx -w feat/auth --high
+
+# Terminal 2 — work on payments (different worktree, different branch)
+omx -w feat/payments --high
+
+# Terminal 3 — main checkout, unaffected
+codex
+```
+
+Each session has its own working directory, its own git index, and its own branch. You can commit in any of them independently.
+
+## Reusing an existing worktree
+
+If you run `omx -w feat/auth` again and a worktree already exists at the expected path for that branch, OMX reuses it. It verifies that:
+
+- The existing worktree's branch matches the requested branch
+- The worktree is clean (no uncommitted changes)
+
+If either condition fails, OMX exits with an error rather than silently overwriting state.
+
+<Warning>
+If the leader workspace has uncommitted changes and you are using `--worktree` with `omx team`, OMX will refuse to start and ask you to commit or stash first. Worker worktrees branch from the leader's current HEAD, so a dirty workspace would create non-reproducible starting points.
+</Warning>
+
+## Integration with team mode
+
+`omx team` accepts `--worktree` to give each worker its own branch:
+
+```bash
+# Each worker gets its own branch: sprint-1/worker-0, sprint-1/worker-1, ...
+omx team --worktree=sprint-1 3:executor "implement the approved plan"
+```
+
+Workers use the branch pattern `<worktree-name>/<worker-name>`. After workers finish, you can review and merge each branch independently.
+
+After the team run completes, workers commit their changes with:
+
+```bash
+git add -A && git commit -m "task: <task-subject>"
+```
+
+This makes each worker's changes available for incremental review and integration into the leader branch.
+
+## Rollback on failure
+
+If a worktree is created during a team run and the run fails before completing, OMX rolls back provisioned worktrees in reverse order:
+
+1. Runs `git worktree remove --force <path>` for each provisioned tree
+2. Deletes the branch with `git branch -D <branch>` if the branch was created during this run (not if it pre-existed)
+
+The ralph policy (`skipBranchDeletion: true`) preserves branches on rollback — useful when you want to inspect partial work.
+
+## Requirements
+
+- Must be inside a git repository (`git rev-parse --show-toplevel` must succeed)
+- Branch names must be valid git branch names (validated with `git check-ref-format --branch`)
+- The requested branch must not already be checked out in another worktree
+
+## Scope summary
+
+| Scope | Flag | Branch pattern | Worktree path |
+|-------|------|----------------|---------------|
+| `launch` | `-w [name]` | `name` or detached | `<repo-parent>/<repo>.omx-worktrees/launch-<name>/` |
+| `team` | `omx team --worktree=name` | `name/<worker>` | `.omx/team/<team>/worktrees/<worker>/` |
+| `autoresearch` | internal | `autoresearch/<name>/<run>` | `.omx/worktrees/autoresearch-<name>-<run>/` |

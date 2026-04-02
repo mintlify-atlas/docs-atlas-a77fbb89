@@ -1,0 +1,220 @@
+---
+title: "Troubleshooting"
+description: "Solutions to common OMX installation, configuration, and runtime issues."
+---
+
+Run `omx doctor` first. It checks the most common configuration problems and reports what is missing or misconfigured.
+
+```bash
+omx doctor
+```
+
+If you need help beyond what's here, join the community:
+
+- **Discord:** [discord.gg/PUwSMR9XNk](https://discord.gg/PUwSMR9XNk)
+- **GitHub Issues:** [github.com/Yeachan-Heo/oh-my-codex/issues](https://github.com/Yeachan-Heo/oh-my-codex/issues)
+
+---
+
+## Installation and setup
+
+<AccordionGroup>
+  <Accordion title="omx command not found after install">
+    The global npm binary path is not on your `PATH`.
+
+    **Check:**
+    ```bash
+    npm bin -g
+    ```
+
+    **Fix:** Add the output of that command to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.), then reload:
+    ```bash
+    export PATH="$(npm bin -g):$PATH"
+    source ~/.zshrc  # or ~/.bashrc
+    ```
+
+  </Accordion>
+
+  <Accordion title="Prompts or skills not available in Codex">
+    OMX prompts and skills are written into your Codex config directory by `omx setup`. If they are missing, setup either did not run or wrote to the wrong location.
+
+    **Fix:** Re-run setup:
+    ```bash
+    omx setup
+    ```
+
+    Then verify with:
+    ```bash
+    omx doctor
+    ```
+
+    Doctor will report whether prompts, skills, and AGENTS.md are present and correctly referenced.
+  </Accordion>
+
+  <Accordion title="Doctor reports config issues">
+    `omx doctor` checks for common misconfigurations and prints a report. Read the output carefully — each issue includes a suggested fix.
+
+    Common causes:
+    - Missing `OPENAI_API_KEY` or Codex auth not configured
+    - MCP servers not registered in Codex CLI config
+    - Prompts or skills directory not found
+
+    After fixing, re-run `omx doctor` to confirm all checks pass.
+  </Accordion>
+
+  <Accordion title="Setup breaks TUI config">
+    In some versions, re-running `omx setup` on a workspace that already has a Codex-managed TUI config could overwrite or conflict with existing sections.
+
+    This is fixed in v0.11.9 (see [changelog](https://github.com/Yeachan-Heo/oh-my-codex/blob/main/CHANGELOG.md)). If you are on an older version or still see the problem, re-running setup on an updated version corrects the config:
+
+    ```bash
+    npm update -g oh-my-codex
+    omx setup
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Platform and environment
+
+<AccordionGroup>
+  <Accordion title="Intel Mac: high syspolicyd / trustd CPU during startup">
+    On some Intel Macs, starting OMX with `--madmax --high` spikes `syspolicyd` and `trustd` CPU usage while macOS Gatekeeper validates many concurrent process launches.
+
+    **Fix options (try in order):**
+
+    1. Remove the quarantine flag from the OMX binary:
+       ```bash
+       xattr -dr com.apple.quarantine $(which omx)
+       ```
+
+    2. Add your terminal application to the Developer Tools allowlist in **System Settings → Privacy & Security → Developer Tools**.
+
+    3. Use lower concurrency — avoid `--madmax --high` until the spike subsides.
+  </Accordion>
+
+  <Accordion title="tmux not found on Windows">
+    `omx team` requires a tmux-compatible backend. tmux is not available natively on Windows outside WSL2.
+
+    **Native Windows fix:** Install [psmux](https://github.com/marlocarlo/psmux):
+    ```powershell
+    winget install psmux
+    ```
+
+    **WSL2 fix:**
+    ```bash
+    sudo apt install tmux
+    ```
+
+    | Platform | Install command |
+    |---|---|
+    | macOS | `brew install tmux` |
+    | Ubuntu/Debian | `sudo apt install tmux` |
+    | Fedora | `sudo dnf install tmux` |
+    | Arch | `sudo pacman -S tmux` |
+    | Windows (native) | `winget install psmux` |
+    | Windows (WSL2) | `sudo apt install tmux` |
+  </Accordion>
+</AccordionGroup>
+
+## Session and HUD
+
+<AccordionGroup>
+  <Accordion title="HUD not showing in session">
+    The HUD auto-attaches **only when you are already inside a tmux session** when you run `omx`. If you launch `omx` from a plain terminal (not inside tmux), the HUD is not shown automatically.
+
+    **Check:** Are you inside a tmux session? Run `echo $TMUX` — if it is empty, you are not in tmux.
+
+    **If using team mode and HUD is still missing:** This was a known bug fixed in v0.11.9. Active stateful modes were disappearing from the HUD during live sessions. Update to v0.11.9 or later:
+    ```bash
+    npm update -g oh-my-codex
+    ```
+
+    **Manual launch:**
+    ```bash
+    omx hud --watch
+    ```
+  </Accordion>
+
+  <Accordion title="Deep-interview nudges not suppressing correctly">
+    When `$deep-interview` is active, automated nudges (leader nudges, worker-idle nudges, Ralph continue-steers, and auto-nudges) should be suppressed so the interview can run without interruption.
+
+    This was fixed in v0.11.8 and v0.11.9. The deep-interview lock state now correctly blocks fallback tmux-pane nudges and notify-hook auto-nudges.
+
+    **Fix:** Update to v0.11.9 or later:
+    ```bash
+    npm update -g oh-my-codex
+    ```
+
+    If the issue persists after updating, check that the deep-interview state file exists:
+    ```bash
+    cat .omx/state/deep-interview-state.json
+    ```
+    The file should contain `"active": true` while an interview is in progress.
+  </Accordion>
+</AccordionGroup>
+
+## Team and workers
+
+<AccordionGroup>
+  <Accordion title="Team workers not starting">
+    Workers are spawned via `omx team` and require tmux (or psmux on Windows) to be installed and available on `PATH`.
+
+    **Diagnosis steps:**
+
+    1. Confirm tmux is available:
+       ```bash
+       tmux -V
+       ```
+
+    2. Check for orphaned sessions from a previous run:
+       ```bash
+       tmux ls | grep '^omx-' || echo "no omx sessions"
+       ```
+
+    3. Run `omx doctor` — it checks team runtime prerequisites.
+
+    4. Inspect the team job state:
+       ```bash
+       ls ~/.omx/team-jobs/
+       ```
+
+    **Common causes:**
+    - tmux not installed or not on PATH
+    - Previous team session still holding the session name — run `omx cleanup` to clear orphaned processes
+    - `cwd` passed to the team command is not an absolute path
+  </Accordion>
+
+  <Accordion title="Orphaned processes after a crashed session">
+    If OMX or a team session exits abnormally, tmux panes and worker processes may keep running in the background.
+
+    **Fix:**
+    ```bash
+    omx cleanup
+    ```
+
+    This identifies and kills orphaned OMX-managed processes and tmux panes. Alternatively, list and kill sessions manually:
+    ```bash
+    tmux ls | grep '^omx-'
+    tmux kill-session -t <session-name>
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Notifications and OpenClaw
+
+<AccordionGroup>
+  <Accordion title="OpenClaw notifications not firing">
+    The most common cause is missing activation environment variables.
+
+    **Check:**
+    ```bash
+    test "$OMX_OPENCLAW" = "1" && echo "enabled" || echo "OMX_OPENCLAW not set"
+    test "$OMX_OPENCLAW_COMMAND" = "1" && echo "command gateway enabled" || echo "OMX_OPENCLAW_COMMAND not set"
+    test -n "$HOOKS_TOKEN" && echo "token present" || echo "HOOKS_TOKEN missing"
+    ```
+
+    Both `OMX_OPENCLAW=1` and (for command gateways) `OMX_OPENCLAW_COMMAND=1` must be exported in your shell profile before starting OMX.
+
+    See the [OpenClaw reference](/reference/openclaw) for the full setup guide and pass/fail diagnostics table.
+  </Accordion>
+</AccordionGroup>

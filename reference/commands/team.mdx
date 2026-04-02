@@ -1,0 +1,179 @@
+---
+title: "omx team"
+description: "Spawn parallel Codex worker panes in tmux with durable task coordination, per-worker worktrees, and inbox/state bootstrapping."
+---
+
+`omx team` launches multiple Codex worker panes inside a tmux session, gives each worker its own git worktree, and bootstraps a shared task/inbox state layer so workers can coordinate without stepping on each other.
+
+Use `omx team` when an approved plan has independent parallel lanes that are large enough to benefit from durable tmux/worktree coordination. For small in-session fanout, prefer Codex native subagents instead.
+
+## Usage
+
+```bash
+omx team <N:role> "<task description>"
+omx team status <team-name> [--json] [--tail-lines <100-1000>]
+omx team await <team-name> [--timeout-ms <ms>] [--after-event-id <id>] [--json]
+omx team resume <team-name>
+omx team shutdown <team-name> [--force]
+omx team api <operation> [--input <json>] [--json]
+```
+
+## Composition syntax
+
+The first positional argument is an optional `N:role` specifier followed by a quoted task description.
+
+```
+omx team [N:role] "<task>"
+```
+
+| Part | Meaning |
+|---|---|
+| `N` | Number of worker panes to spawn. Defaults to 1 when omitted. |
+| `role` | Agent role keyword (e.g. `executor`, `debugger`). Determines which role prompt each worker receives. |
+| `"<task>"` | Free-text task description injected into each worker's inbox. |
+
+### Examples
+
+```bash
+# Three executor workers tackling the same task
+omx team 3:executor "fix the failing tests"
+
+# Two debuggers focused on a specific problem
+omx team 2:debugger "root cause the memory leak in the auth service"
+
+# Single worker with a named role
+omx team 1:architect "audit the current data-access layer"
+
+# Short-form team followup (picks up the approved plan automatically)
+omx team
+```
+
+<Tip>
+  Use `$team` from inside a Codex session as a keyword shortcut — it reads the approved plan context from `.omx/plans/` and launches the team with the correct task and worker count automatically.
+</Tip>
+
+## Subcommands
+
+### omx team status
+
+Show a snapshot of the running team's health and worker states.
+
+```bash
+omx team status <team-name>
+omx team status <team-name> --json
+omx team status <team-name> --tail-lines 600
+```
+
+<ParamField path="--json" type="flag">
+  Output the snapshot as machine-readable JSON.
+</ParamField>
+
+<ParamField path="--tail-lines" type="number">
+  Number of lines to capture from each worker's tmux pane for the sparkshell summary. Must be between 100 and 1000. Defaults to 400.
+</ParamField>
+
+### omx team resume
+
+Re-attach to a team session that is still running but whose leader terminal was lost.
+
+```bash
+omx team resume <team-name>
+```
+
+### omx team shutdown
+
+Gracefully shut down a team, draining in-progress tasks before killing worker panes.
+
+```bash
+omx team shutdown <team-name>
+omx team shutdown <team-name> --force   # bypass the shutdown gate
+```
+
+<ParamField path="--force" type="flag">
+  Skip the orderly shutdown gate and kill all worker panes immediately. Use this when workers are dead or unresponsive and normal shutdown is blocked.
+</ParamField>
+
+### omx team await
+
+Block and wait for the next matching team event, useful for scripted polling or CI pipelines.
+
+```bash
+omx team await <team-name>
+omx team await <team-name> --timeout-ms 30000
+omx team await <team-name> --after-event-id evt-123 --json
+```
+
+### omx team api
+
+Low-level interop layer for reading and writing team state directly. Accepts a structured JSON `--input` object.
+
+```bash
+omx team api list-tasks --input '{"team_name":"my-team"}' --json
+omx team api claim-task --input '{"team_name":"my-team","task_id":"1","worker":"worker-1"}' --json
+omx team api send-message --input '{"team_name":"my-team","from_worker":"worker-1","to_worker":"leader-fixed","body":"ACK"}' --json
+```
+
+Run `omx team api --help` for the full list of supported operations, or `omx team api <operation> --help` for per-operation details.
+
+## Worker model routing
+
+By default each worker inherits the leader's model. Pass `--spark` at launch to route a faster low-complexity model to workers instead:
+
+```bash
+omx --spark team 3:executor "run the test suite and fix failures"
+```
+
+The `--spark` flag resolves the configured low-complexity team model (`OMX_DEFAULT_SPARK_MODEL` / `OMX_SPARK_MODEL`) and injects it into each worker's launch environment. The leader's model is not changed.
+
+## Worktrees
+
+Team workers get dedicated git worktrees by default. Each worker operates in an isolated checkout so they can make concurrent changes without merge conflicts in the working tree. The leader's working directory is separate from all worker worktrees.
+
+The `--worktree` flag accepted by older `omx team` versions is deprecated and is now a no-op backward-compatibility alias.
+
+## Platform requirements
+
+`omx team` requires a tmux-compatible backend.
+
+| Platform | Install |
+|---|---|
+| macOS | `brew install tmux` |
+| Ubuntu / Debian | `sudo apt install tmux` |
+| Fedora | `sudo dnf install tmux` |
+| Arch | `sudo pacman -S tmux` |
+| Windows (native) | `winget install psmux` |
+| Windows (WSL2) | `sudo apt install tmux` |
+
+<Note>
+  On native Windows, OMX uses psmux as a tmux-compatible replacement. Install it with `winget install psmux`. WSL2 users should install standard tmux inside the WSL environment.
+</Note>
+
+## Environment variables
+
+| Variable | Effect |
+|---|---|
+| `OMX_TEAM_WORKER_LAUNCH_ARGS` | Override the full launch arg string for all team workers |
+| `OMX_TEAM_INHERIT_LEADER_FLAGS` | Set to `0` to prevent workers from inheriting the leader's flags |
+
+## Full example workflow
+
+```bash
+# 1. Launch the leader session
+omx --madmax --high
+
+# 2. Inside Codex, clarify and plan
+$deep-interview "clarify the refactor scope"
+$ralplan "approve the refactor plan"
+
+# 3. Launch a parallel team to execute
+$team 3:executor "execute the approved refactor plan"
+
+# 4. Monitor from another terminal
+omx team status <team-name>
+
+# 5. Inspect a stalled worker
+omx sparkshell --tmux-pane %12 --tail-lines 400
+
+# 6. Shut down when done
+omx team shutdown <team-name>
+```

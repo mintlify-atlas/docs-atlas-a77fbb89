@@ -1,0 +1,310 @@
+---
+title: "Runtime state (.omx/)"
+description: "How OMX stores mode state, plans, logs, memory, and session data under .omx/, and how to inspect or reset it."
+---
+
+## Overview
+
+OMX persists all runtime data under a single `.omx/` directory at the project
+root. This includes active mode state, approved plans, session logs, session
+notes, and cross-session memory. None of these files are committed to source
+control — `omx setup --scope project` automatically adds `.omx/` to
+`.gitignore`.
+
+```
+.omx/
+├── state/                    # Active mode state JSON files
+│   ├── ralph-state.json
+│   ├── autopilot-state.json
+│   ├── sessions/
+│   │   └── <session-id>/     # Session-scoped state (higher precedence)
+│   │       ├── AGENTS.md     # Composite session instructions file
+│   │       └── *.json
+│   └── session.json          # Current session ID
+├── plans/                    # PRD and test spec artifacts from $ralplan
+│   ├── prd-*.md
+│   └── test-spec-*.md
+├── logs/                     # Session logs and hook dispatch logs
+├── notepad.md                # Session notes (readable by the overlay)
+├── project-memory.json       # Cross-session memory
+├── setup-scope.json          # Persisted setup scope preference
+├── hud-config.json           # HUD display preset
+└── backups/                  # Auto-backups created by setup and agents-init
+    └── setup/<timestamp>/
+```
+
+---
+
+## Directory reference
+
+<Accordion title=".omx/state/ — active mode state">
+  Each execution mode writes a JSON state file named `<mode>-state.json`. For
+  example, when `$ralph` is active, `.omx/state/ralph-state.json` exists and
+  contains `"active": true`.
+
+  State files follow a common shape:
+  ```json
+  {
+    "active": true,
+    "current_phase": "execute",
+    "iteration": 3,
+    "max_iterations": 10,
+    "started_at": "2026-04-02T10:00:00Z",
+    "tmux_pane_id": "%12"
+  }
+  ```
+
+  The `omx status` command reads all state files in `.omx/state/` and prints
+  the mode name, active flag, and current phase for each one.
+
+  **Session scoping:** State files can also live under
+  `.omx/state/sessions/<session-id>/`. Session-scoped state takes precedence
+  over root-level state when both exist. The current session ID is stored in
+  `.omx/state/session.json`. MCP tools and the overlay both resolve state
+  through this precedence chain automatically.
+</Accordion>
+
+<Accordion title=".omx/plans/ — PRD and test spec artifacts">
+  The `$ralplan` skill writes approved planning artifacts here:
+
+  | File | Contents |
+  |------|----------|
+  | `prd-*.md` | Product requirements document — describes what to build and why |
+  | `test-spec-*.md` | Test specification — defines verification criteria and test shapes |
+
+  The ralph planning gate checks for both files before allowing implementation
+  to start. Until they exist, `$ralph` blocks execution and reports:
+
+  ```
+  Ralph Ralplan-First Gate: BLOCKED
+  - Requirement: complete planning artifacts before implementation/tool execution.
+  - Missing: `prd-*.md`, `test-spec-*.md`
+  - Path: .omx/plans/
+  ```
+
+  Once both files are present, the gate reports `UNLOCKED` and `$ralph` can
+  proceed with implementation.
+</Accordion>
+
+<Accordion title=".omx/logs/ — session logs">
+  OMX writes session logs and hook dispatch logs here. The directory is
+  created by `omx setup` and is otherwise managed by the runtime. You can
+  inspect these files for debugging tool dispatch, session lifecycle events,
+  and hook failures.
+</Accordion>
+
+<Accordion title=".omx/notepad.md — session notes">
+  A markdown file for in-session working notes. The `note` skill writes here.
+  On session start, the overlay reads the `## PRIORITY` section and injects
+  it into the model instructions so the model is aware of high-priority notes
+  from the beginning of each session.
+
+  Example format:
+  ```markdown
+  ## PRIORITY
+  - Auth refactor must not change the public API surface.
+  - All database writes must go through the repository layer.
+
+  ## Working notes
+  - Identified race condition in order processor (see line 412).
+  ```
+
+  The notepad persists across sessions. Clear it with `$note clear` or by
+  editing the file directly.
+</Accordion>
+
+<Accordion title=".omx/project-memory.json — cross-session memory">
+  A structured JSON file that persists project context across sessions. The
+  overlay reads it on launch and injects a compact summary into the model
+  instructions.
+
+  Fields surfaced in the overlay:
+  ```json
+  {
+    "techStack": "TypeScript, Node.js, PostgreSQL, Next.js",
+    "conventions": "ESM-only, strict null checks, Zod for runtime validation",
+    "build": "pnpm build && pnpm typecheck",
+    "directives": [
+      { "priority": "high", "directive": "No direct DB access outside repository layer" },
+      { "priority": "high", "directive": "API changes require an RFC comment before implementation" }
+    ]
+  }
+  ```
+
+  Up to three high-priority directives are injected per session. Use the
+  `memory` MCP tool group to read and write this file programmatically.
+</Accordion>
+
+<Accordion title=".omx/setup-scope.json — persisted setup scope">
+  Written by `omx setup` to record which scope was chosen. Subsequent
+  `omx setup`, `omx doctor`, and `omx uninstall` runs read this file to
+  apply the same scope without prompting.
+
+  ```json
+  { "scope": "project" }
+  ```
+
+  Valid values: `"user"` or `"project"`. Legacy values (`"project-local"`)
+  are migrated to `"project"` on read.
+</Accordion>
+
+---
+
+## State lifecycle
+
+Every mode follows the same write contract:
+
+<Steps>
+  <Step title="Write on start">
+    When a skill activates, it writes its initial state JSON with
+    `"active": true`, `"started_at"`, and any mode-specific fields like
+    `current_phase` or `iteration`.
+  </Step>
+  <Step title="Update on phase or iteration change">
+    As the mode progresses, it updates the state file to reflect the current
+    phase name and iteration number. The overlay reads these on the next
+    session start.
+  </Step>
+  <Step title="Mark complete on finish">
+    On successful completion, the state file is updated with
+    `"active": false` and `"completed_at"`. The file is not deleted, so
+    the history of completed modes is preserved.
+  </Step>
+  <Step title="Clear on cancel or abort">
+    When a mode is cancelled via `omx cancel` or the `$cancel` skill, its
+    state file is cleared or marked inactive immediately.
+  </Step>
+</Steps>
+
+---
+
+## `omx status`
+
+Reads all state files in `.omx/state/` and prints a one-line summary for each:
+
+```bash
+omx status
+```
+
+Example output:
+```
+ralph: ACTIVE (phase: execute)
+autopilot: inactive (phase: n/a)
+```
+
+Status reads the current session's scoped state first, falling back to
+root-level state for compatibility. Only modes with state files are shown;
+there is no output if no modes have ever been activated.
+
+---
+
+## `omx cancel`
+
+Cancels all active execution modes by marking their state files inactive.
+
+```bash
+omx cancel
+```
+
+Internally this runs the `$cancel` skill, which reads
+`.codex/skills/cancel/SKILL.md` and follows the cancellation workflow.
+The skill clears active mode state, writes `"active": false` to any running
+mode state files, and reports what was cancelled.
+
+<Warning>
+  Cancel marks modes inactive in state files but does not kill running processes.
+  If a `$team` session is still running in tmux panes, use
+  `omx team shutdown <team-name>` to terminate the worker processes before
+  cancelling.
+</Warning>
+
+---
+
+## `omx cleanup`
+
+Kills orphaned OMX MCP server processes and removes stale OMX `/tmp` directories
+left behind by previous Codex App sessions.
+
+```bash
+omx cleanup
+omx cleanup --dry-run
+```
+
+What it removes:
+
+| Target | Criteria |
+|--------|----------|
+| Orphaned MCP processes | Processes matching `dist/mcp/state-server.js`, `memory-server.js`, `code-intel-server.js`, or `trace-server.js` whose parent PID is 1 (reparented to init) or that are outside the current Codex session tree |
+| Stale `/tmp` directories | Directories named `omx-*`, `omc-*`, or `oh-my-codex-*` with an `mtime` older than 1 hour |
+
+Cleanup sends `SIGTERM` first, then escalates to `SIGKILL` after a 5-second
+grace period for any processes that do not exit. It never touches the current
+OMX session's own processes.
+
+```bash
+# Preview what would be removed
+omx cleanup --dry-run
+
+# Remove orphaned processes and stale /tmp dirs
+omx cleanup
+```
+
+---
+
+## MCP tool groups
+
+OMX exposes its state layer to the model through four MCP server groups
+configured in `config.toml` by `omx setup`:
+
+| Server | Key | Purpose |
+|--------|-----|---------|
+| `omx_state` | State tools | Read and write mode state JSON files |
+| `omx_memory` | Memory tools | Read and write `project-memory.json` and `notepad.md` |
+| `omx_code_intel` | Code-intel tools | Codebase structure queries |
+| `omx_trace` | Trace tools | Session trace and log access |
+
+The model uses these tools directly during a session to checkpoint progress,
+update state, and read memory. You should not normally need to interact with
+these files manually during a session — the model manages them.
+
+---
+
+## Resetting state
+
+<Accordion title="Reset all mode state (keep memory and plans)">
+  Delete the state directory contents but preserve plans and memory:
+
+  ```bash
+  rm -f .omx/state/*.json
+  rm -rf .omx/state/sessions/
+  ```
+</Accordion>
+
+<Accordion title="Reset session notes">
+  Clear the notepad:
+
+  ```bash
+  # Remove priority section manually, or truncate:
+  > .omx/notepad.md
+  ```
+</Accordion>
+
+<Accordion title="Reset project memory">
+  Clear the cross-session memory JSON:
+
+  ```bash
+  echo '{}' > .omx/project-memory.json
+  ```
+</Accordion>
+
+<Accordion title="Full reset (omx uninstall --purge)">
+  Remove the entire `.omx/` directory including state, plans, logs, memory,
+  and all backups:
+
+  ```bash
+  omx uninstall --purge
+  ```
+
+  This is equivalent to `rm -rf .omx/`. You will need to run `omx setup`
+  again to recreate the directory structure.
+</Accordion>

@@ -1,0 +1,193 @@
+---
+title: "$team — parallel agent teams"
+description: "Spawn multiple Codex workers in tmux panes with coordinated task routing, shared state, and a staged pipeline."
+---
+
+`$team` is the parallel execution mode in the canonical OMX workflow. It starts real Codex (or Claude) CLI sessions in dedicated tmux panes, routes tasks through a shared state contract, and coordinates workers through a staged `plan → prd → exec → verify → fix` pipeline. Each worker runs in its own git worktree by default.
+
+## What it does
+
+When you invoke `$team`, OMX:
+
+1. Parses the worker count, role, and task from your arguments
+2. Creates team state under `.omx/state/team/<name>/`
+3. Composes a worker instructions file scoped to the team (without mutating project `AGENTS.md`)
+4. Splits the current tmux window into worker panes
+5. Launches Codex (or Claude) workers with environment variables pointing to the shared state root
+6. Writes per-worker `inbox.md` files and triggers workers via the team runtime
+7. Returns control to the leader pane; follow-up uses `status`, `resume`, or `shutdown`
+
+<Warning>
+`$team` requires tmux (macOS/Linux) or psmux (Windows). The current session must be inside tmux when `$team` is invoked. If `omx team` is unavailable, the skill stops with a hard error rather than falling back to in-process fanout.
+</Warning>
+
+## When to use
+
+- An approved plan from `$ralplan` has multiple independent lanes that benefit from parallel execution
+- The work is large enough that coordination overhead is worth the throughput gain
+- You need durable tmux workers, shared task state, or explicit lifecycle control (status, resume, shutdown)
+- Workers need to run in separate git worktrees
+
+<Info>
+For small in-session fanout where a few independent subtasks can be fanned out and awaited directly, use Codex native subagents instead. `$team` is for durable, stateful coordination that needs to survive beyond a single reasoning burst.
+</Info>
+
+## How to use
+
+### Basic invocation
+
+```text
+$team 3:executor "fix the failing tests"
+```
+
+### Composition format
+
+```bash
+omx team [N:agent-type] "<task description>"
+```
+
+| Part | Description |
+|------|-------------|
+| `N` | Number of workers to spawn (default: 3) |
+| `agent-type` | Role prompt to load for each worker |
+| `"task"` | Task description passed to the team |
+
+### Examples
+
+<CodeGroup>
+
+```bash Executor team
+omx team 3:executor "fix failing tests with verification"
+```
+
+```bash Debugger team
+omx team 2:debugger "investigate flaky integration tests"
+```
+
+```bash Default (no count or role)
+omx team "ship end-to-end fix with verification"
+```
+
+</CodeGroup>
+
+## Role types
+
+Workers are assigned a role prompt that shapes their behavior. Common roles:
+
+| Role | Best for |
+|------|---------|
+| `executor` | Implementation, refactoring, feature work |
+| `debugger` | Root-cause analysis, flaky tests, error investigation |
+| `verifier` | Evidence collection, validation, regression checks |
+| `architect` | Analysis, tradeoff review, read-only diagnosis |
+
+The `executor` role is the default for implementation work. Role types available in your project are listed in the approved plan's available-agent-types roster after a `$ralplan` run.
+
+## Team pipeline
+
+The canonical team pipeline runs through five phases:
+
+```
+team-plan → team-prd → team-exec → team-verify → team-fix (loop)
+```
+
+| Phase | Agents | Output |
+|-------|--------|--------|
+| `team-plan` | analyst, planner | Task list with dependencies |
+| `team-prd` | product-manager, analyst | Explicit scope and success metrics |
+| `team-exec` | executor, test-engineer | Working code with tests |
+| `team-verify` | verifier, quality-reviewer | Pass/fail verdict with evidence |
+| `team-fix` | debugger, executor | Fixed code; loops back to verify |
+
+Terminal states are `complete`, `failed`, and `cancelled`. The fix loop runs up to three times before transitioning to `failed` if verification cannot be satisfied.
+
+## Lifecycle commands
+
+Use these commands to manage a running team:
+
+```bash
+omx team status <team-name>
+omx team resume <team-name>
+omx team shutdown <team-name>
+```
+
+| Command | Effect |
+|---------|--------|
+| `status` | Reads team snapshot: task counts, worker states, dead or non-reporting workers |
+| `resume` | Reconnects to a live team session if the leader pane was closed |
+| `shutdown` | Sends a graceful shutdown request then removes `.omx/state/team/<name>` |
+
+<Warning>
+Do not run `shutdown` while workers have tasks in `in_progress` state. Wait for terminal task state (`pending=0`, `in_progress=0`, `failed=0`) before shutting down, or use `--force` only for deliberate abort.
+</Warning>
+
+## Platform requirements
+
+`omx team` needs a tmux-compatible backend:
+
+| Platform | Install |
+|----------|---------|
+| macOS | `brew install tmux` |
+| Ubuntu / Debian | `sudo apt install tmux` |
+| Fedora | `sudo dnf install tmux` |
+| Arch | `sudo pacman -S tmux` |
+| Windows (native) | `winget install psmux` |
+| Windows (WSL2) | `sudo apt install tmux` |
+
+## Claude teammates
+
+Workers default to Codex CLI. To use Claude CLI workers, set the worker CLI environment variable:
+
+```bash
+# All workers use Claude
+OMX_TEAM_WORKER_CLI=claude omx team 2:executor "update docs and report"
+
+# Mixed team: worker 1 = Codex, worker 2 = Claude
+OMX_TEAM_WORKER_CLI_MAP=codex,claude omx team 2:executor "split doc/code tasks"
+```
+
+## Spark model for workers
+
+Workers use the leader model by default. To run workers on a lower-complexity model, set `OMX_DEFAULT_SPARK_MODEL`:
+
+```bash
+OMX_DEFAULT_SPARK_MODEL=<model> omx team 3:executor "fix failing tests"
+```
+
+Or pass explicit model args through `OMX_TEAM_WORKER_LAUNCH_ARGS`:
+
+```bash
+OMX_TEAM_WORKER_LAUNCH_ARGS="--model <spark-model>" omx team 3:executor "fix failing tests"
+```
+
+The `--spark` conceptual flag maps to setting the spark model for workers. Do not hardcode specific model names; use the `OMX_DEFAULT_SPARK_MODEL` environment variable so the model can be updated without changing invocations.
+
+## State files
+
+Team state lives entirely under `.omx/state/team/<name>/`:
+
+| File | Purpose |
+|------|---------|
+| `config.json` | Team configuration and worker pane IDs |
+| `manifest.v2.json` | Team manifest |
+| `tasks/task-{id}.json` | Per-task status, claim, and result |
+| `workers/{name}/inbox.md` | Task assignment for the worker |
+| `workers/{name}/heartbeat.json` | Worker liveness tracking |
+| `mailbox/leader-fixed.json` | Worker-to-leader ACK mailbox |
+| `dispatch/requests.json` | Durable dispatch queue |
+
+## Advanced: `omx team api`
+
+For programmatic task mutations and reads, use the team API instead of direct file edits:
+
+```bash
+omx team api list-tasks --input '{"team_name":"my-team"}' --json
+omx team api claim-task --input '{"team_name":"my-team","task_id":"1","worker":"worker-1"}' --json
+omx team api transition-task-status --input '{"team_name":"my-team","task_id":"1","from":"in_progress","to":"completed","claim_token":"<token>"}' --json
+```
+
+All `--json` responses include `schema_version`, `timestamp`, `command`, `ok`, and either `data` or `error`.
+
+<Tip>
+After a `$ralplan` handoff, the approved plan includes a concrete launch hint with the recommended worker count and role. Use that hint directly rather than guessing at composition.
+</Tip>

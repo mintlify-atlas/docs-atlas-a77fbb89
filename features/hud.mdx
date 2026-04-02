@@ -1,0 +1,172 @@
+---
+title: "HUD — live status bar"
+description: "A tmux status bar that shows active OMX modes, team workers, session metrics, and quota usage in real time."
+---
+
+The HUD (heads-up display) is a single-line ANSI status bar that renders the current OMX runtime state. It reads `.omx/state/*.json` files directly and composes a compact statusline you can watch while Codex is working.
+
+## Commands
+
+```bash
+omx hud              # Print current HUD state once and exit
+omx hud --watch      # Poll every 1 s with terminal clear (live dashboard)
+omx hud --json       # Output the raw render context as pretty-printed JSON
+omx hud --preset=NAME # Use a named preset: minimal | focused | full
+omx hud --tmux       # Open HUD in a new tmux split pane (auto-detects orientation)
+```
+
+<Note>
+`--watch` mode requires a TTY. It hides the cursor, clears the screen on each tick, and exits cleanly on `Ctrl+C`.
+</Note>
+
+## Auto-attach inside tmux
+
+When you run `omx hud --tmux`, OMX splits the current tmux window into a bottom pane (4 lines tall) running `omx hud --watch`. The split pane is created with `tmux split-window -v` and inherits the current working directory, so the HUD always reads the correct project's state.
+
+```bash
+# Must already be inside a tmux session
+omx hud --tmux
+omx hud --tmux --preset=full
+```
+
+Close the HUD pane with `Ctrl+C` inside it, or:
+
+```bash
+tmux kill-pane -t bottom
+```
+
+## What the HUD shows
+
+The HUD renders a label `[OMX#version]` followed by pipe-separated elements. Which elements appear depends on the active preset.
+
+### Active mode indicators
+
+| Indicator | Shown when | Example |
+|-----------|-----------|---------|
+| `ralph:N/M` | Ralph loop is active | `ralph:3/10` (color shifts from green → yellow → red as iterations increase) |
+| `ralplan:N/?` or `ralplan:phase` | Ralplan consensus planning is active | `ralplan:2/?` |
+| `interview:phase[:lock]` | Deep-interview is active | `interview:intent-first:lock` |
+| `autopilot:phase` | Autopilot is active | `autopilot:executing` |
+| `ultrawork` | Ultrawork parallel execution is active | `ultrawork` |
+| `qa:phase` | UltraQA is active | `qa:fixing` |
+| `research:phase` | Autoresearch is active | `research:collecting` |
+| `team:N workers` | Team mode is active with N workers | `team:3 workers` |
+
+### Session metrics
+
+| Indicator | Description |
+|-----------|-------------|
+| `branch-name` | Current git branch (cyan) |
+| `turns:N` | Turns completed this session |
+| `tokens:1.2k` | Total tokens used this session (k/M suffix) |
+| `quota:5h:42%,wk:18%` | Five-hour and weekly usage percentages |
+| `session:14m` | Time since session started |
+| `last:32s ago` | Time since last turn completed |
+| `total-turns:N` | Cumulative turns across all sessions |
+
+<Info>
+Metric indicators only appear when their values apply to the current session. Stale metrics from a prior session are automatically suppressed by comparing `last_activity` against `started_at`.
+</Info>
+
+## Presets
+
+Three presets control which elements are rendered:
+
+<Accordion title="minimal">
+  Git branch, ralph, ultrawork, ralplan, deep-interview, autoresearch, ultraqa, team, turns.
+
+  Best for a narrow status line with only active-mode signals.
+</Accordion>
+
+<Accordion title="focused (default)">
+  Everything in minimal, plus: autopilot, tokens, quota, session duration, last activity.
+
+  The default preset if no `--preset` is given and no `.omx/hud-config.json` is present.
+</Accordion>
+
+<Accordion title="full">
+  Everything in focused, plus: total cumulative turns.
+
+  Best for a comprehensive session dashboard.
+</Accordion>
+
+Configure a persistent preset default in `.omx/hud-config.json`:
+
+```json
+{
+  "preset": "full",
+  "git": {
+    "display": "repo-branch"
+  }
+}
+```
+
+## JSON output
+
+Use `--json` to get the raw render context as structured data for scripting or external dashboards:
+
+```bash
+omx hud --json
+```
+
+The JSON output matches the `HudRenderContext` shape:
+
+```json
+{
+  "version": "1.4.2",
+  "gitBranch": "feat/auth",
+  "ralph": {
+    "active": true,
+    "iteration": 3,
+    "max_iterations": 10
+  },
+  "team": {
+    "active": true,
+    "agent_count": 3,
+    "team_name": "fix-auth"
+  },
+  "metrics": {
+    "session_turns": 12,
+    "session_total_tokens": 48200,
+    "five_hour_limit_pct": 42,
+    "weekly_limit_pct": 18,
+    "last_activity": "2026-04-02T10:31:00Z"
+  },
+  "session": {
+    "session_id": "sess_abc123",
+    "started_at": "2026-04-02T09:15:00Z"
+  },
+  "ultrawork": null,
+  "autopilot": null,
+  "ralplan": null,
+  "deepInterview": null,
+  "autoresearch": null,
+  "ultraqa": null,
+  "hudNotify": {
+    "last_turn_at": "2026-04-02T10:31:00Z",
+    "turn_count": 12
+  }
+}
+```
+
+Fields are `null` when the corresponding mode is inactive. Use this with `jq` or any JSON consumer to build custom dashboards:
+
+```bash
+omx hud --json | jq '.ralph.iteration'
+omx hud --json | jq '.metrics.five_hour_limit_pct'
+```
+
+## Color semantics
+
+The HUD uses ANSI colors that carry meaning:
+
+| Color | Meaning |
+|-------|---------|
+| Green | Team active, UltraQA active |
+| Cyan | Git branch, Ultrawork, Ralplan, Autoresearch |
+| Yellow | Autopilot, Deep-interview |
+| Ralph gradient | Green (early iterations) → Yellow → Red (approaching max) |
+| Dim | Metrics (turns, tokens, quota, session duration) |
+| Bold | `[OMX]` label |
+
+Colors are automatically disabled in non-TTY output (useful when piping to files or scripts).

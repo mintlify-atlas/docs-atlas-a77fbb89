@@ -1,0 +1,229 @@
+---
+title: "Notifications"
+description: "Push session lifecycle events to Discord, Slack, Telegram, or a custom webhook so you know when Codex finishes, idles, or needs input."
+---
+
+OMX can send notifications to external platforms when session lifecycle events occur. Configure once in `.omx-config.json` for persistent notifications, or use the `--notify-temp` flag for a single session without touching any config file.
+
+## Events that trigger notifications
+
+| Event | Default verbosity threshold | When it fires |
+|-------|-----------------------------|---------------|
+| `session-start` | minimal | Session begins |
+| `session-stop` | minimal | Session is stopped while a mode is active |
+| `session-end` | minimal | Session exits cleanly |
+| `session-idle` | session | Session has been idle past the threshold |
+| `ask-user-question` | agent | Agent is waiting for user input |
+
+The effective verbosity level is `"session"` by default, meaning `session-start`, `session-stop`, `session-end`, and `session-idle` fire but `ask-user-question` does not. Raise verbosity to `"agent"` or `"verbose"` to include more events, or lower to `"minimal"` to receive only start/stop/end.
+
+## Supported providers
+
+<CardGroup cols={2}>
+  <Card title="Discord (webhook)" icon="discord">
+    Post to any channel via an incoming webhook URL. Supports optional `@user` or `@role` mentions.
+
+    **Env var:** `OMX_DISCORD_WEBHOOK_URL`
+  </Card>
+  <Card title="Discord (bot)" icon="discord">
+    Send via a bot token + channel ID. Required for reply injection (answering Codex questions from Discord).
+
+    **Env vars:** `OMX_DISCORD_NOTIFIER_BOT_TOKEN`, `OMX_DISCORD_NOTIFIER_CHANNEL`
+  </Card>
+  <Card title="Slack" icon="slack">
+    Post to any channel via an incoming webhook URL. Supports `<!here>`, `<!channel>`, and `<@UXXXXXXXX>` mentions.
+
+    **Env var:** `OMX_SLACK_WEBHOOK_URL`
+  </Card>
+  <Card title="Telegram" icon="telegram">
+    Send via a bot token + chat ID. Supports Markdown and HTML parse modes.
+
+    **Env vars:** `OMX_TELEGRAM_BOT_TOKEN`, `OMX_TELEGRAM_CHAT_ID`
+  </Card>
+  <Card title="Generic webhook" icon="webhook">
+    POST a JSON payload to any HTTPS endpoint. Supports custom headers and PUT method override.
+
+    **Config key:** `webhook.url`
+  </Card>
+  <Card title="OpenClaw / custom gateway" icon="plug">
+    Route through an OpenClaw notification gateway or a custom CLI command / webhook bridge. Enable with `openclaw.enabled: true` in config.
+
+    **Config key:** `openclaw`, `custom_webhook_command`, `custom_cli_command`
+  </Card>
+</CardGroup>
+
+## Temporary mode (no config required)
+
+Use temporary mode to enable notifications for a single session without modifying any config file. Credentials are read from environment variables.
+
+<CodeGroup>
+```bash Discord
+omx --notify-temp --discord
+```
+
+```bash Slack
+omx --notify-temp --slack
+```
+
+```bash Telegram
+omx --notify-temp --telegram
+```
+
+```bash Multiple providers
+omx --notify-temp --discord --slack
+```
+
+```bash OpenClaw gateway
+omx --notify-temp --custom openclaw:my-gateway
+```
+</CodeGroup>
+
+Provider flags (`--discord`, `--slack`, `--telegram`) imply `--notify-temp` automatically — you do not need to spell out both.
+
+## Persistent configuration
+
+Add a `notifications` block to `~/.codex/.omx-config.json`:
+
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "verbosity": "session",
+    "discord": {
+      "enabled": true,
+      "webhookUrl": "https://discord.com/api/webhooks/...",
+      "mention": "<@123456789012345678>"
+    },
+    "slack": {
+      "enabled": true,
+      "webhookUrl": "https://hooks.slack.com/services/...",
+      "mention": "<!here>"
+    },
+    "telegram": {
+      "enabled": true,
+      "botToken": "123456:ABC-...",
+      "chatId": "-100123456789"
+    }
+  }
+}
+```
+
+Multiple platforms can be active simultaneously — all enabled platforms receive every event.
+
+### Per-event overrides
+
+Override the platform or template for a specific event:
+
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "discord": { "enabled": true, "webhookUrl": "..." },
+    "events": {
+      "session-idle": {
+        "enabled": false
+      },
+      "ask-user-question": {
+        "enabled": true,
+        "discord": {
+          "enabled": true,
+          "webhookUrl": "https://discord.com/api/webhooks/urgent-channel/...",
+          "mention": "<@123456789012345678>"
+        }
+      }
+    }
+  }
+}
+```
+
+### Named profiles
+
+Define multiple notification profiles and switch between them with `OMX_NOTIFY_PROFILE`:
+
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "defaultProfile": "work",
+    "profiles": {
+      "work": {
+        "enabled": true,
+        "slack": { "enabled": true, "webhookUrl": "https://hooks.slack.com/..." }
+      },
+      "personal": {
+        "enabled": true,
+        "discord": { "enabled": true, "webhookUrl": "https://discord.com/..." }
+      }
+    }
+  }
+}
+```
+
+```bash
+export OMX_NOTIFY_PROFILE=personal
+omx --high
+```
+
+## Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `OMX_DISCORD_WEBHOOK_URL` | Discord incoming webhook URL |
+| `OMX_DISCORD_NOTIFIER_BOT_TOKEN` | Discord bot token (for bot + reply mode) |
+| `OMX_DISCORD_NOTIFIER_CHANNEL` | Discord channel ID (for bot mode) |
+| `OMX_DISCORD_MENTION` | Discord mention string, e.g. `<@123456>` |
+| `OMX_SLACK_WEBHOOK_URL` | Slack incoming webhook URL |
+| `OMX_SLACK_MENTION` | Slack mention, e.g. `<!here>` |
+| `OMX_TELEGRAM_BOT_TOKEN` | Telegram bot token |
+| `OMX_TELEGRAM_CHAT_ID` | Telegram chat ID |
+| `OMX_NOTIFY_VERBOSITY` | Override verbosity: `minimal`, `session`, `agent`, `verbose` |
+| `OMX_NOTIFY_PROFILE` | Select a named profile from config |
+| `OMX_NOTIFY_TEMP` | Set to `1` to activate temp mode without CLI flags |
+
+## Verbosity levels
+
+| Level | Events included |
+|-------|----------------|
+| `minimal` | session-start, session-stop, session-end |
+| `session` (default) | + session-idle (includes tmux tail snippet) |
+| `agent` | + ask-user-question |
+| `verbose` | All events including per-tool output |
+
+```bash
+export OMX_NOTIFY_VERBOSITY=minimal
+```
+
+## Notification payload
+
+Every notification includes:
+
+- Event name and timestamp
+- Session ID and project name
+- Active OMX modes during the session
+- Session duration (for end/stop events)
+- tmux pane tail snippet (at `session` verbosity and above)
+- Question text (for `ask-user-question`)
+- Agents spawned/completed counts
+
+## Reply injection
+
+When using Discord bot or Telegram, you can reply to notifications to inject messages back into the Codex session. Enable in config:
+
+```json
+{
+  "notifications": {
+    "enabled": true,
+    "discord-bot": { "enabled": true, "botToken": "...", "channelId": "..." },
+    "reply": {
+      "enabled": true,
+      "authorizedDiscordUserIds": ["123456789012345678"],
+      "pollIntervalMs": 3000,
+      "rateLimitPerMinute": 10
+    }
+  }
+}
+```
+
+<Warning>
+For Discord bot reply mode, `authorizedDiscordUserIds` is required and must contain at least one user ID. Without it, Discord reply listening is disabled.
+</Warning>

@@ -1,0 +1,345 @@
+---
+title: "AGENTS.md — project guidance"
+description: "How AGENTS.md works as the top-level operating contract for OMX, how it is injected into Codex, and how to customize it for your project."
+---
+
+## What AGENTS.md is
+
+`AGENTS.md` is the top-level operating contract for the workspace. Every Codex
+session launched through `omx` receives it as the model instructions file —
+the document that defines how the agent should think, delegate, route work,
+and verify completion.
+
+In OMX's own words from the file header:
+
+> This AGENTS.md is the top-level operating contract for the workspace.
+> Role prompts under `prompts/*.md` are narrower execution surfaces. They must
+> follow this file, not override it.
+
+Role prompts (executor, architect, debugger, etc.) are scoped specialisations.
+They carry out work within the boundaries set by AGENTS.md, not independently
+from it.
+
+---
+
+## How OMX injects AGENTS.md
+
+When you run `omx` (or `omx exec`), the launch sequence automatically appends:
+
+```
+-c model_instructions_file="<cwd>/AGENTS.md"
+```
+
+to the underlying `codex` invocation. This overrides Codex's built-in default
+system prompt and makes your AGENTS.md the primary instruction source for the
+model.
+
+The exact mechanism is controlled by `OMX_BYPASS_DEFAULT_SYSTEM_PROMPT`. When
+it is not `"0"` (the default), the injection happens automatically. When it
+is `"0"`, the override is skipped and Codex uses its built-in system prompt
+instead.
+
+OMX also builds a **session-scoped** model instructions file at
+`.omx/state/sessions/<session-id>/AGENTS.md`. This composite file merges:
+
+1. `~/.codex/AGENTS.md` (user-scope guidance)
+2. `./AGENTS.md` (project-scope guidance, if present)
+3. The runtime overlay (session context, active modes, priority notes, project
+   memory, compaction protocol)
+
+The session-scoped file is what Codex actually reads; the source files are
+never mutated during a session.
+
+---
+
+## Structure of AGENTS.md
+
+A fully-populated OMX AGENTS.md follows the [Unified Guidance Schema](https://github.com/Yeachan-Heo/oh-my-codex/blob/main/docs/guidance-schema.md), which requires six canonical sections:
+
+<Accordion title="Role & Intent">
+  The title and opening paragraphs that define who the agent is and what a
+  successful outcome looks like for this workspace.
+</Accordion>
+
+<Accordion title="Operating Principles">
+  High-level decision rules wrapped in `<operating_principles>` tags. These
+  govern quality, speed, safety posture, delegation defaults, and response
+  density.
+
+  Example from the OMX template:
+  ```
+  - Solve the task directly when you can do so safely and well.
+  - Prefer evidence over assumption; verify before claiming completion.
+  - Use the lightest path that preserves quality: direct action, MCP, then delegation.
+  ```
+</Accordion>
+
+<Accordion title="Delegation Rules">
+  The `<delegation_rules>` block defines the default operating posture and
+  lists the four canonical modes:
+
+  | Mode | When to use |
+  |------|-------------|
+  | `$deep-interview` | Unclear intent, missing boundaries, explicit "don't assume" |
+  | `$ralplan` | Requirements are clear enough, but plan/tradeoff review is needed |
+  | `$team` | Approved plan needs coordinated parallel execution |
+  | `$ralph` | Approved plan needs a persistent single-owner completion loop |
+  | Solo execute | Task is already scoped, one agent can finish and verify it |
+</Accordion>
+
+<Accordion title="Keyword Detection">
+  A table that maps trigger phrases to skills. When a user message contains a
+  mapped keyword, the agent reads the corresponding skill file and executes its
+  workflow immediately without asking for confirmation.
+
+  See the [keyword detection table](#keyword-detection-table) below for the
+  full list.
+</Accordion>
+
+<Accordion title="Verification & Completion">
+  The `<verification>` block defines what counts as evidence of completion.
+  The agent must prove the claim rather than just assert it:
+
+  ```
+  Verification loop: identify what proves the claim, run the verification,
+  read the output, then report with evidence. If verification fails, continue
+  iterating rather than reporting incomplete work.
+  ```
+</Accordion>
+
+<Accordion title="State Management">
+  The `<state_management>` block describes the `.omx/` directory layout and
+  the mode lifecycle requirements (write on start, update on phase change,
+  mark completed on finish, clear on cancel).
+</Accordion>
+
+---
+
+## Keyword detection table
+
+When the model reads a user message, it scans for these trigger phrases and
+activates the corresponding skill immediately:
+
+| Keyword(s) | Skill | Action |
+|------------|-------|--------|
+| `"ralph"`, `"don't stop"`, `"must complete"`, `"keep going"` | `$ralph` | Reads `.codex/skills/ralph/SKILL.md`, runs persistence loop |
+| `"autopilot"`, `"build me"`, `"I want a"` | `$autopilot` | Reads `.codex/skills/autopilot/SKILL.md`, runs autonomous pipeline |
+| `"ultrawork"`, `"ulw"`, `"parallel"` | `$ultrawork` | Reads `.codex/skills/ultrawork/SKILL.md`, runs parallel agents |
+| `"ultraqa"` | `$ultraqa` | Reads `.codex/skills/ultraqa/SKILL.md`, runs QA cycling workflow |
+| `"analyze"`, `"investigate"` | `$analyze` | Reads `.codex/skills/analyze/SKILL.md`, runs deep analysis |
+| `"plan this"`, `"plan the"`, `"let's plan"` | `$plan` | Reads `.codex/skills/plan/SKILL.md`, starts planning workflow |
+| `"interview"`, `"deep interview"`, `"gather requirements"`, `"interview me"`, `"don't assume"`, `"ouroboros"` | `$deep-interview` | Reads `.codex/skills/deep-interview/SKILL.md`, runs Socratic interview |
+| `"ralplan"`, `"consensus plan"` | `$ralplan` | Reads `.codex/skills/ralplan/SKILL.md`, starts RALPLAN-DR deliberation |
+| `"team"`, `"swarm"`, `"coordinated team"`, `"coordinated swarm"` | `$team` | Reads `.codex/skills/team/SKILL.md`, starts team orchestration |
+| `"ecomode"`, `"eco"`, `"budget"` | `$ecomode` | Reads `.codex/skills/ecomode/SKILL.md`, enables token-efficient mode |
+| `"cancel"`, `"stop"`, `"abort"` | `$cancel` | Reads `.codex/skills/cancel/SKILL.md`, cancels active modes |
+| `"tdd"`, `"test first"` | `$tdd` | Reads `.codex/skills/tdd/SKILL.md`, starts test-driven workflow |
+| `"fix build"`, `"type errors"` | `$build-fix` | Reads `.codex/skills/build-fix/SKILL.md`, fixes build errors |
+| `"review code"`, `"code review"`, `"code-review"` | `$code-review` | Reads `.codex/skills/code-review/SKILL.md`, runs code review |
+| `"security review"` | `$security-review` | Reads `.codex/skills/security-review/SKILL.md`, runs security audit |
+| `"web-clone"`, `"clone site"`, `"clone website"`, `"copy webpage"` | `$web-clone` | Reads `.codex/skills/web-clone/SKILL.md`, starts website cloning |
+
+**Detection rules:**
+- Keywords are case-insensitive and match anywhere in the message.
+- Explicit `$name` invocations (e.g. `$ralph`) run left-to-right and override
+  keyword-triggered routing.
+- If multiple non-explicit keywords match, the most specific match wins.
+- The rest of the message after the keyword becomes the task description.
+
+---
+
+## Runtime overlays
+
+Before each Codex session starts, OMX appends a bounded overlay block to the
+session-scoped AGENTS.md. The overlay is capped at 3,500 characters and
+contains:
+
+- **Session metadata** — session ID and ISO timestamp
+- **Codebase map** — a compact directory/module summary for token-efficient exploration
+- **Active modes** — any currently-active mode states (ralph, autopilot, etc.)
+  with iteration number and phase
+- **Priority notes** — the `## PRIORITY` section from `.omx/notepad.md` if present
+- **Project context** — tech stack, conventions, build command, and high-priority
+  directives from `.omx/project-memory.json`
+- **Compaction protocol** — instructions for preserving state before context compaction
+- **Ralph planning gate** — shown when ralph is active; blocks implementation
+  until `.omx/plans/prd-*.md` and `.omx/plans/test-spec-*.md` both exist
+
+Overlays are marker-bounded and stripped after the session ends:
+
+```
+<!-- OMX:RUNTIME:START -->
+<session_context>
+...
+</session_context>
+<!-- OMX:RUNTIME:END -->
+```
+
+The overlay is applied to the session-scoped instructions file, not to the
+source `AGENTS.md` on disk. The source files are never mutated by the overlay
+mechanism.
+
+---
+
+## `omx agents-init`
+
+Bootstrap lightweight `AGENTS.md` files for a repository or subtree without
+overwriting the root orchestration file.
+
+```bash
+omx agents-init [path] [--dry-run] [--force] [--verbose]
+
+# Alias
+omx deepinit [path]
+```
+
+Running `omx agents-init .` creates:
+- `./AGENTS.md` — full OMX orchestration template (same as `omx setup --scope project`)
+- `./src/AGENTS.md`, `./tests/AGENTS.md`, etc. — lightweight scaffolds for each
+  direct child directory
+
+Each child-directory scaffold includes:
+- A `<!-- Parent: ../AGENTS.md -->` reference
+- A layout summary (files and subdirectories)
+- A manual notes block (`<!-- OMX:AGENTS-INIT:MANUAL:START --> ... <!-- OMX:AGENTS-INIT:MANUAL:END -->`)
+  that is preserved across refreshes
+
+<Note>
+  `omx agents-init` skips generated and vendor directories automatically:
+  `.git`, `.omx`, `.codex`, `node_modules`, `dist`, `build`, `coverage`,
+  `.next`, `.nuxt`, `.turbo`, `.cache`, `__pycache__`, `vendor`, `target`,
+  `tmp`, `temp`.
+</Note>
+
+It will not overwrite an existing unmanaged `AGENTS.md` unless you pass `--force`.
+It also skips the project-root file while an active OMX session is running.
+
+---
+
+## `omx agents`
+
+Manage Codex native agent TOML files under `.codex/agents/` (project scope)
+or `~/.codex/agents/` (user scope).
+
+```bash
+# List installed agents (project + user by default)
+omx agents list
+omx agents list --scope project
+omx agents list --scope user
+
+# Create a new agent scaffold
+omx agents add my-specialist
+
+# Edit an existing agent in $EDITOR
+omx agents edit my-specialist
+
+# Remove an agent (prompts for confirmation)
+omx agents remove my-specialist
+omx agents remove my-specialist --force
+```
+
+Each agent is a TOML file with at minimum `name`, `description`, and
+`developer_instructions`. Optional fields include `model`,
+`model_reasoning_effort`, `temperature`, and `tools`.
+
+```toml
+# Codex native agent: my-specialist
+name = "my-specialist"
+description = "Domain expert for payments integration"
+developer_instructions = """
+You are a payments specialist. Focus only on payment flows,
+webhook handling, and idempotency patterns.
+"""
+
+# Optional fields:
+# model = "gpt-5.4"
+# model_reasoning_effort = "medium"
+# temperature = 0.2
+# tools = ["shell", "apply_patch"]
+```
+
+Reserved agent names (`default`, `worker`, `explorer`) cannot be used as
+custom agent names.
+
+---
+
+## Scoped AGENTS.md for subdirectories
+
+For large codebases, place AGENTS.md files in subdirectories to narrow the
+guidance scope for that subtree:
+
+```
+my-repo/
+├── AGENTS.md          # root orchestration contract (OMX-managed)
+├── src/
+│   └── AGENTS.md      # src-specific: module boundaries, test commands
+├── packages/
+│   ├── api/
+│   │   └── AGENTS.md  # API package: route conventions, auth patterns
+│   └── worker/
+│       └── AGENTS.md  # Worker package: queue semantics, retry policy
+└── docs/
+    └── AGENTS.md      # Docs: style guide, link validation commands
+```
+
+Child AGENTS.md files narrow scope — they should contain only directory-specific
+constraints, not duplicate the root orchestration brain. Codex merges them
+through the `child_agents_md = true` feature flag set in `config.toml` by setup.
+
+---
+
+## Customising AGENTS.md
+
+The OMX-generated AGENTS.md contains an `<!-- omx:generated:agents-md -->` marker.
+`omx setup` refreshes only the model capability table inside it when it detects
+this marker, rather than replacing the whole file. This means you can safely
+add content to sections the template does not manage.
+
+Common customisations:
+
+<Accordion title="Working agreements">
+  Add project-specific conventions below the default working agreements:
+
+  ```markdown
+  ## Working agreements
+  - Write a cleanup plan before modifying code for cleanup/refactor/deslop work.
+  - ...existing defaults...
+  - Always run `pnpm test:integration` before marking a PR ready.
+  - Migration files must never be edited after merging to main.
+  ```
+</Accordion>
+
+<Accordion title="Delegation rules">
+  Extend the `<delegation_rules>` block to add project-specific routing:
+
+  ```xml
+  <delegation_rules>
+  Default posture: work directly.
+
+  ...existing modes...
+
+  - Use `$deep-interview` for any change touching the payments module.
+  - Delegate database migrations to `$architect` for schema review first.
+  </delegation_rules>
+  ```
+</Accordion>
+
+<Accordion title="Model routing">
+  Override the default model routing table:
+
+  ```xml
+  <model_routing>
+  - Low complexity: `explore`, `style-reviewer`
+  - Standard: `executor`, `debugger`, `test-engineer`
+  - High complexity: `architect`, `critic`
+  - Security changes: always use high complexity regardless of task size
+  </model_routing>
+  ```
+</Accordion>
+
+<Warning>
+  Do not remove or modify the `<!-- OMX:RUNTIME:START -->`, `<!-- OMX:RUNTIME:END -->`,
+  `<!-- OMX:TEAM:WORKER:START -->`, and `<!-- OMX:TEAM:WORKER:END -->` marker
+  boundaries. OMX uses these for runtime overlay injection and removal; deleting
+  them will break the overlay lifecycle.
+</Warning>

@@ -1,0 +1,259 @@
+---
+title: "Hook plugins"
+description: "Custom .mjs plugins that run on native session lifecycle events, with access to tmux, logging, state, and OMX runtime APIs."
+---
+
+Hook plugins let you extend OMX with your own side-effect logic. Drop any `.mjs` file into `.omx/hooks/` and it will be invoked automatically when session lifecycle events fire. Plugins are enabled by default and run in isolation with a timeout.
+
+<Note>
+Hook plugins are **additive**. They do not replace `omx tmux-hook` workflows — both surfaces coexist.
+</Note>
+
+## Quick start
+
+<Steps>
+  <Step title="Scaffold a plugin">
+    ```bash
+    omx hooks init
+    ```
+    Creates `.omx/hooks/sample-plugin.mjs` with a working scaffold.
+  </Step>
+
+  <Step title="Check status">
+    ```bash
+    omx hooks status
+    ```
+    Lists discovered plugins and shows whether each is valid and enabled.
+  </Step>
+
+  <Step title="Validate plugins">
+    ```bash
+    omx hooks validate
+    ```
+    Imports each plugin and verifies the export contract without dispatching a live event.
+  </Step>
+
+  <Step title="Test dispatch">
+    ```bash
+    omx hooks test
+    ```
+    Fires a synthetic `session-start` event against all plugins and prints the dispatch results.
+  </Step>
+</Steps>
+
+## Plugin contract
+
+Every hook plugin is an ES module that exports a single async function:
+
+```js
+// .omx/hooks/my-plugin.mjs
+export async function onHookEvent(event, sdk) {
+  if (event.event === 'session-end') {
+    await sdk.log.info('session ended', { session_id: event.session_id });
+  }
+}
+```
+
+Any `.mjs` file in `.omx/hooks/` that exports `onHookEvent` is a valid plugin. Files that do not export `onHookEvent` are silently skipped.
+
+## Event envelope
+
+Every call to `onHookEvent` receives a typed event envelope as the first argument:
+
+```ts
+interface HookEventEnvelope {
+  schema_version: "1";
+  event: string;           // event name, e.g. "session-start"
+  timestamp: string;       // ISO 8601
+  source: "native" | "derived";
+  context: Record<string, unknown>;
+  session_id?: string;
+  thread_id?: string;
+  turn_id?: string;
+  mode?: string;           // active OMX mode, e.g. "ralph"
+  confidence?: number;     // present on derived events (0–1)
+  parser_reason?: string;  // present on derived events
+}
+```
+
+## Native events (v1)
+
+Native events are emitted from existing OMX lifecycle and notification paths:
+
+| Event | When it fires |
+|-------|--------------|
+| `session-start` | Codex session begins |
+| `session-end` | Codex session exits cleanly |
+| `turn-complete` | An agent turn finishes |
+| `session-idle` | Session has been idle past the configured threshold |
+
+All native events have `source: "native"`.
+
+## Derived signals (opt-in)
+
+Derived signals are best-effort events parsed from agent output. They are disabled by default:
+
+```bash
+export OMX_HOOK_DERIVED_SIGNALS=1
+```
+
+| Signal | Description |
+|--------|-------------|
+| `needs-input` | Agent output suggests it is waiting for user input |
+| `pre-tool-use` | Agent is about to call a tool |
+| `post-tool-use` | Agent finished a tool call |
+
+Derived events carry `source: "derived"`, a `confidence` score between 0 and 1, and an optional `parser_reason` hint. Treat them as advisory — they may not fire on every occurrence.
+
+## SDK surface
+
+The `sdk` argument provides the full plugin API:
+
+### sdk.tmux
+
+Send keys to a tmux pane from your plugin:
+
+```js
+await sdk.tmux.sendKeys({
+  text: 'echo "turn complete"',
+  submit: true,         // append Enter (default: false)
+  paneId: '%12',        // target pane (optional, defaults to current)
+  sessionName: 'main',  // target session (optional)
+  cooldownMs: 500,      // debounce in ms (optional)
+});
+```
+
+### sdk.log
+
+Write structured log lines to `.omx/logs/hooks-YYYY-MM-DD.jsonl`:
+
+```js
+await sdk.log.info('plugin fired', { event: event.event });
+await sdk.log.warn('unexpected state', { key: 'value' });
+await sdk.log.error('send failed', { reason: err.message });
+```
+
+### sdk.state
+
+Per-plugin key-value state store, namespace-scoped to the plugin name:
+
+```js
+// Write a value
+await sdk.state.write('last_run', new Date().toISOString());
+
+// Read with optional fallback
+const lastRun = await sdk.state.read('last_run', null);
+
+// Delete a key
+await sdk.state.delete('last_run');
+
+// Read all keys in this plugin's namespace
+const all = await sdk.state.all();
+```
+
+### sdk.omx (read-only)
+
+Read OMX runtime state from the current workspace's `.omx/state/` files:
+
+```js
+// Current session info (session_id, started_at, cwd, pid, platform)
+const session = await sdk.omx.session.read();
+
+// HUD notify state (last_turn_at, turn_count, last_agent_output)
+const hud = await sdk.omx.hud.read();
+
+// Notify-fallback daemon state
+const fallback = await sdk.omx.notifyFallback.read();
+
+// Update-check state (last_checked_at, last_seen_latest)
+const updateCheck = await sdk.omx.updateCheck.read();
+```
+
+<Warning>
+`sdk.omx` is intentionally read-only in the current version. It reads `.omx/state/*.json` files for the workspace root. It does not expose `readJson`, `list`, or `exists` helpers — use `sdk.state` for plugin-owned persistence instead.
+</Warning>
+
+## Real plugin example
+
+A complete plugin that sends a Slack-style webhook on session end:
+
+```js
+// .omx/hooks/notify-on-end.mjs
+export async function onHookEvent(event, sdk) {
+  if (event.event !== 'session-end') return;
+
+  const session = await sdk.omx.session.read();
+  const hud = await sdk.omx.hud.read();
+
+  const message = [
+    `OMX session ended`,
+    session?.cwd ? `Project: ${session.cwd}` : null,
+    hud?.turn_count != null ? `Turns: ${hud.turn_count}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  try {
+    await fetch(process.env.MY_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: message }),
+    });
+    await sdk.log.info('webhook sent', { event: event.event });
+  } catch (err) {
+    await sdk.log.error('webhook failed', { reason: err.message });
+  }
+}
+```
+
+## Environment controls
+
+<CodeGroup>
+```bash Disable plugins entirely
+export OMX_HOOK_PLUGINS=0
+```
+
+```bash Tune the per-plugin timeout (default 1500ms)
+export OMX_HOOK_PLUGIN_TIMEOUT_MS=3000
+```
+
+```bash Enable derived signals
+export OMX_HOOK_DERIVED_SIGNALS=1
+```
+</CodeGroup>
+
+When `OMX_HOOK_PLUGINS=0`, plugin dispatch is skipped entirely — no plugins are loaded or called. This is useful in CI or when a plugin is misbehaving.
+
+If a plugin exceeds `OMX_HOOK_PLUGIN_TIMEOUT_MS`, it is marked `timeout` in the dispatch result and its output is discarded.
+
+## Team-worker safety
+
+In team-worker sessions (when `OMX_TEAM_WORKER` is set), plugin side effects are skipped by default. Only the lead session emits side effects, preventing duplicate notifications or tmux sends from every worker pane.
+
+A plugin dispatch in a team-worker session returns `status: "skipped_team_worker"` without calling `onHookEvent`.
+
+## Logs
+
+All plugin dispatch activity and plugin-written log lines are appended to:
+
+```
+.omx/logs/hooks-YYYY-MM-DD.jsonl
+```
+
+Each line is a JSON object. Plugin-authored log lines (via `sdk.log`) are written here with `plugin_id`, `status`, `event`, `timestamp`, and any extra metadata you pass.
+
+## Dispatch result schema
+
+Each plugin call produces a dispatch result you can inspect with `omx hooks status`:
+
+```ts
+{
+  plugin: string;          // plugin file name
+  path: string;            // full path to .mjs file
+  ok: boolean;             // true if onHookEvent resolved without error
+  durationMs: number;      // execution time
+  status: "ok" | "timeout" | "error" | "invalid_export" | "skipped_team_worker" | "skipped";
+  error?: string;          // present on error/timeout
+  exitCode?: number | null;
+}
+```

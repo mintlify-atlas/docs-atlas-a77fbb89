@@ -1,0 +1,142 @@
+---
+title: "omx launch"
+description: "Launch Codex CLI with HUD auto-attach, session overlay injection, and automatic config repair."
+---
+
+`omx launch` is the default command when you run `omx` with no subcommand. It wraps the Codex CLI launch sequence with three automatic steps: config repair, session overlay injection, and HUD attachment. The result is a stronger, pre-configured Codex session every time.
+
+## Usage
+
+```bash
+omx                          # implicit launch — passes all flags to Codex
+omx launch                   # explicit form
+omx launch --madmax --high   # common recommended invocation
+omx resume                   # resume a previous interactive session
+omx exec "write tests"       # non-interactive exec with overlay injection
+```
+
+## What launch does
+
+<Steps>
+  <Step title="Config repair">
+    Before spawning Codex, `omx launch` checks `config.toml` for duplicate `[tui]` sections (a known artifact of some upgrade paths) and repairs them automatically. This prevents Codex CLI's TOML parser from rejecting the config on startup.
+  </Step>
+  <Step title="Session overlay injection">
+    `omx launch` generates a runtime overlay from your `AGENTS.md` and any active OMX mode state, then writes a session-scoped model instructions file. Codex receives this file via the `-c model_instructions_file=...` flag unless you already supply one.
+
+    Set `OMX_BYPASS_DEFAULT_SYSTEM_PROMPT=0` to disable overlay injection entirely.
+    Set `OMX_MODEL_INSTRUCTIONS_FILE` to point at a custom instructions file instead.
+  </Step>
+  <Step title="HUD auto-attach">
+    When you are already inside a tmux session (`$TMUX` is set), `omx launch` automatically splits the tmux window and starts `omx hud --watch` in a bottom pane. When launched from outside tmux on a TTY, it creates a new detached tmux session so you can attach to it. On native Windows or non-TTY contexts it falls back to direct Codex invocation without the HUD.
+  </Step>
+</Steps>
+
+## Launch policies
+
+OMX selects one of three launch policies at runtime:
+
+| Policy | When it applies |
+|---|---|
+| `inside-tmux` | `$TMUX` is already set — attaches HUD in a split pane |
+| `detached-tmux` | Running on a TTY with tmux available — creates a new session |
+| `direct` | Native Windows, non-TTY stdin/stdout, or tmux unavailable — launches Codex directly |
+
+## Flags
+
+<ParamField path="--madmax" type="flag">
+  **Dangerous.** Bypasses Codex approvals and sandbox. Translated to `--dangerously-bypass-approvals-and-sandbox` before being passed to Codex. Use only in trusted environments where you want Codex to act without confirmation gates.
+</ParamField>
+
+<ParamField path="--high" type="flag">
+  Requests high reasoning effort from the model. Translated to `-c model_reasoning_effort="high"` before being passed to Codex.
+</ParamField>
+
+<ParamField path="--xhigh" type="flag">
+  Requests extra-high reasoning effort. Translated to `-c model_reasoning_effort="xhigh"`. Higher quality at the cost of additional latency.
+</ParamField>
+
+<ParamField path="--spark" type="flag">
+  Routes a faster low-complexity model to team workers spawned from this session. The leader (this Codex instance) continues using its normal configured model. Has no effect unless you also invoke `omx team` from within the session.
+</ParamField>
+
+<ParamField path="--madmax-spark" type="flag">
+  Combines `--madmax` (bypass for the leader) with `--spark` (low-complexity model for workers). Shorthand for using both flags together.
+</ParamField>
+
+<ParamField path="--notify-temp" type="flag">
+  Activates temporary notification routing for this session only, bypassing any persistent notification configuration. Must be combined with at least one provider selector flag.
+</ParamField>
+
+<ParamField path="--discord" type="flag">
+  Selects Discord as the notification provider when `--notify-temp` is active.
+</ParamField>
+
+<ParamField path="--slack" type="flag">
+  Selects Slack as the notification provider when `--notify-temp` is active.
+</ParamField>
+
+<ParamField path="--telegram" type="flag">
+  Selects Telegram as the notification provider when `--notify-temp` is active.
+</ParamField>
+
+<ParamField path="-w, --worktree[=<name>]" type="flag">
+  Launch Codex inside a git worktree. When no name is given, OMX creates a detached worktree with an auto-generated name. When a name is given, OMX ensures a worktree with that name exists and changes the working directory to it before spawning Codex.
+</ParamField>
+
+## omx resume
+
+`omx resume` is a thin alias that prepends `resume` to the Codex launch args, telling Codex CLI to reattach to the most recent session. OMX still applies overlay injection and HUD attachment as normal.
+
+```bash
+omx resume
+omx resume --high    # resume with high reasoning effort
+```
+
+## omx exec
+
+`omx exec` runs `codex exec` non-interactively with the same overlay injection that `omx launch` applies to interactive sessions. Use this for scripted or CI invocations where you want OMX's AGENTS.md overlay active but do not need an interactive terminal.
+
+```bash
+omx exec "add unit tests for the auth module"
+omx exec --madmax "migrate the database schema"
+```
+
+<Warning>
+  `omx exec` does not open an interactive TUI. If the task requires user confirmation, it will block or fail. Use `--madmax` to bypass approval gates for automated contexts.
+</Warning>
+
+## Environment variables
+
+| Variable | Effect |
+|---|---|
+| `OMX_BYPASS_DEFAULT_SYSTEM_PROMPT` | Set to `0` to skip overlay injection entirely |
+| `OMX_MODEL_INSTRUCTIONS_FILE` | Path to a custom model instructions file that replaces the generated overlay |
+
+## Examples
+
+<CodeGroup>
+```bash Recommended default
+omx --madmax --high
+```
+
+```bash High reasoning, no bypass
+omx --high
+```
+
+```bash Temporary Discord notifications
+omx --notify-temp --discord
+```
+
+```bash Isolated worktree session
+omx -w feature-auth
+```
+
+```bash Non-interactive exec
+omx exec "fix the failing tests"
+```
+</CodeGroup>
+
+<Tip>
+  The recommended first invocation is `omx --madmax --high`. This gives you bypass mode, high reasoning, and the HUD in a single command — which is the starting point for the `$deep-interview` → `$ralplan` → `$team`/`$ralph` workflow.
+</Tip>

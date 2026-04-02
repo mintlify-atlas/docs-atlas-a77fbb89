@@ -1,0 +1,117 @@
+---
+title: "CLI overview"
+description: "omx is the main entry point for oh-my-codex — a workflow layer around Codex CLI that adds HUD, multi-agent team runtime, and skill-based orchestration."
+---
+
+`omx` is the main entry point for oh-my-codex (OMX). Every OMX feature is reachable through it, from launching a stronger Codex session to spinning up a parallel worker team.
+
+## Command listing
+
+| Command | Description |
+|---|---|
+| `omx` | Launch Codex CLI (HUD auto-attaches when already inside tmux) |
+| `omx launch` | Explicit alias for the default launch |
+| `omx exec` | Run `codex exec` non-interactively with OMX AGENTS/overlay injection |
+| `omx resume` | Resume a previous interactive Codex session |
+| `omx team` | Spawn parallel worker panes in tmux and bootstrap inbox/task state |
+| `omx explore` | Default read-only exploration entrypoint (may adaptively use sparkshell backend) |
+| `omx sparkshell` | Native sidecar for direct shell command execution or tmux-pane summarization |
+| `omx ralph` | Launch Codex with ralph persistence mode active |
+| `omx autoresearch` | Launch thin-supervisor autoresearch with keep/discard/reset parity |
+| `omx ask` | Ask local provider CLI (claude\|gemini) and write artifact output |
+| `omx setup` | Install skills, prompts, MCP servers, and scope-specific AGENTS.md |
+| `omx uninstall` | Remove OMX configuration and clean up installed artifacts |
+| `omx doctor` | Check installation health |
+| `omx doctor --team` | Check team/swarm runtime health diagnostics |
+| `omx cleanup` | Kill orphaned OMX MCP server processes and remove stale OMX /tmp directories |
+| `omx session` | Search prior local session transcripts and history artifacts |
+| `omx agents-init [path]` | Bootstrap lightweight AGENTS.md files for a repo/subtree |
+| `omx deepinit [path]` | Alias for `agents-init` |
+| `omx agents` | Manage Codex native agent TOML files |
+| `omx hud` | Show HUD statusline (`--watch`, `--json`, `--preset=NAME`) |
+| `omx status` | Show active modes and state |
+| `omx cancel` | Cancel active execution modes |
+| `omx reasoning` | Show or set model reasoning effort (`low\|medium\|high\|xhigh`) |
+| `omx tmux-hook` | Manage tmux prompt injection workaround (`init\|status\|validate\|test`) |
+| `omx hooks` | Manage hook plugins (`init\|status\|validate\|test`) |
+| `omx version` | Show version information |
+| `omx help` | Show the full help message |
+
+## Global flags
+
+<ParamField path="--yolo" type="flag">
+  Launch Codex in yolo mode. Shorthand for `omx launch --yolo`.
+</ParamField>
+
+<ParamField path="--high" type="flag">
+  Launch Codex with high reasoning effort. Shorthand for `-c model_reasoning_effort="high"`.
+</ParamField>
+
+<ParamField path="--xhigh" type="flag">
+  Launch Codex with xhigh reasoning effort. Shorthand for `-c model_reasoning_effort="xhigh"`.
+</ParamField>
+
+<ParamField path="--madmax" type="flag">
+  **Dangerous.** Bypass Codex approvals and sandbox. Alias for `--dangerously-bypass-approvals-and-sandbox`.
+</ParamField>
+
+<ParamField path="--spark" type="flag">
+  Use the Codex spark model (~1.3x faster) for team workers only. Workers get the configured low-complexity team model; the leader model is unchanged.
+</ParamField>
+
+<ParamField path="--madmax-spark" type="flag">
+  Spark model for workers plus bypass approvals for the leader and workers. Shorthand for `--spark --madmax`.
+</ParamField>
+
+<ParamField path="--notify-temp" type="flag">
+  Enable temporary notification routing for this run/session only. Combine with `--discord`, `--slack`, or `--telegram` to select a provider.
+</ParamField>
+
+<ParamField path="--discord" type="flag">
+  Select Discord as the provider for temporary notification mode. Requires `--notify-temp`.
+</ParamField>
+
+<ParamField path="--slack" type="flag">
+  Select Slack as the provider for temporary notification mode. Requires `--notify-temp`.
+</ParamField>
+
+<ParamField path="--telegram" type="flag">
+  Select Telegram as the provider for temporary notification mode. Requires `--notify-temp`.
+</ParamField>
+
+<ParamField path="--custom <name>" type="flag">
+  Select a custom/OpenClaw gateway name for temporary notification mode. Requires `--notify-temp`. The `<name>` value is the gateway identifier configured in your OpenClaw setup.
+</ParamField>
+
+<ParamField path="-w, --worktree[=<name>]" type="flag">
+  Launch Codex in a git worktree. If no name is given the worktree is detached (auto-named). A name pins the worktree to a specific branch.
+</ParamField>
+
+<ParamField path="--force" type="flag">
+  Force reinstall — overwrite existing files. Used with `omx setup`.
+</ParamField>
+
+<ParamField path="--dry-run" type="flag">
+  Show what would be done without making any changes.
+</ParamField>
+
+<ParamField path="--verbose" type="flag">
+  Show detailed output.
+</ParamField>
+
+## Key command pages
+
+<CardGroup cols={2}>
+  <Card title="omx launch" href="/reference/commands/launch">
+    Launch Codex with HUD auto-attach, overlay injection, and config repair.
+  </Card>
+  <Card title="omx team" href="/reference/commands/team">
+    Spawn parallel Codex worker panes in tmux with task coordination.
+  </Card>
+  <Card title="omx explore" href="/reference/commands/explore">
+    Read-only repository lookup with optional sparkshell backend routing.
+  </Card>
+  <Card title="omx sparkshell" href="/reference/commands/sparkshell">
+    Native sidecar for direct shell execution and tmux-pane summarization.
+  </Card>
+</CardGroup>

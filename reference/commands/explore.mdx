@@ -1,0 +1,83 @@
+---
+title: "omx explore"
+description: "Read-only repository lookup entrypoint that routes qualifying shell commands through the sparkshell backend adaptively."
+---
+
+`omx explore` is the default read-only exploration surface for OMX. Give it a natural-language prompt describing what you want to find, and it will either route the query through the sparkshell backend (for simple shell-native lookups) or run it through the explore harness (a lightweight Rust binary that uses a spark model for reasoning over the repository).
+
+## Usage
+
+```bash
+omx explore --prompt "<prompt>"
+omx explore --prompt-file <path-to-prompt-file>
+```
+
+## How it works
+
+When `omx explore` receives a prompt, it first tries to classify it:
+
+1. **SparkShell route** — If the prompt looks like a direct, safe read-only shell command (e.g. `git log --oneline`, `git diff --stat`, `ls src/`), `omx explore` runs it through the sparkshell backend directly. This is faster and avoids model calls for trivially shell-native queries.
+
+2. **Explore harness** — For everything else, `omx explore` delegates to the native `omx-explore-harness` binary, which uses a spark model to reason over the codebase and answer the prompt. The harness is downloaded or built on first use.
+
+If the sparkshell backend is unavailable, `omx explore` falls back to the explore harness automatically.
+
+## Flags
+
+<ParamField path="--prompt" type="string" required>
+  The natural-language lookup query. All remaining tokens after `--prompt` are joined into a single prompt string. Cannot be combined with `--prompt-file`.
+</ParamField>
+
+<ParamField path="--prompt-file" type="string">
+  Path to a file whose contents are used as the prompt. Useful for multi-line or reusable prompts. Cannot be combined with `--prompt`.
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+```bash Find where state is written
+omx explore --prompt "find where team state is written"
+```
+
+```bash Locate an interface definition
+omx explore --prompt "where is the WorkerStatus type defined"
+```
+
+```bash Git log shorthand (sparkshell route)
+omx explore --prompt "git log --oneline -20"
+```
+
+```bash Prompt from a file
+omx explore --prompt-file .omx/prompts/find-auth-paths.md
+```
+</CodeGroup>
+
+## When to use omx explore
+
+| Situation | Recommended tool |
+|---|---|
+| Simple repo lookup or symbol search | `omx explore --prompt "..."` |
+| Noisy shell command with long output | `omx sparkshell <command>` |
+| Shell command + tmux pane summary | `omx sparkshell --tmux-pane <pane-id>` |
+| Edits, tests, diagnostics, MCP/web | Normal Codex session |
+
+<Note>
+  `omx explore` is a **read-only**, shell-only, allowlisted surface. It cannot make edits, run test suites, perform complex shell composition with pipes or redirects, or access MCP servers or the web. If your task requires any of those, stay on the normal Codex path.
+</Note>
+
+## Limitations
+
+- Shell metacharacters (pipes `|`, redirects `>`, subshells `$()`, etc.) are not interpreted. Prompts containing them are routed to the explore harness rather than sparkshell.
+- The sparkshell route is limited to an allowlisted set of read-only git subcommands (`log`, `diff --stat`, `status`, `show --stat`, `branch`, `rev-parse`) and basic filesystem listing commands (`find`, `ls`, `rg`, `grep`) with explicit shell-prefix syntax.
+- If the sparkshell backend or native harness is unavailable and the network is disconnected, `omx explore` will report an error. Reconnect to allow OMX to fetch the release asset, or set `OMX_EXPLORE_BIN` to a prebuilt harness binary.
+
+## Environment variables
+
+| Variable | Effect |
+|---|---|
+| `USE_OMX_EXPLORE_CMD` | When set, the OMX AGENTS.md operating contract routes simple read-only repo lookup tasks to `omx explore` by default before attempting richer analysis |
+| `OMX_EXPLORE_BIN` | Override path to the `omx-explore-harness` binary |
+
+## Advisory routing from inside Codex
+
+When `USE_OMX_EXPLORE_CMD` is active in the environment, Codex sessions will prefer `omx explore --prompt ...` as the first tool for simple read-only lookup tasks (files, symbols, relationships) before falling back to full code analysis. This keeps routine lookups fast and cheap.
